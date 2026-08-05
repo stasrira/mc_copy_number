@@ -1,0 +1,7 @@
+Location:
+    # Absolute path to the folder where input Excel files are located
+    input_data: /path/to/your/input_data
+    # Absolute path to the folder where output files will be written
+    output_data: /path/to/your/output_data
+    # Path to the folder where log files will be stored; relative to the project root if not absolute
+    logs: logs

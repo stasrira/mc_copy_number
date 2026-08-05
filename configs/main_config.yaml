@@ -1,0 +1,5 @@
+Logging:
+    # Defines log level. Usual values are INFO and DEBUG
+    log_level: INFO
+    # If True (default), every log entry written to a log file is also mirrored to stdout
+    mirror_to_stdout: True

@@ -12,11 +12,9 @@ load_dotenv()
 def main():
     project_root = get_project_root()
 
-    # Load main config
     main_cfg = ConfigData(project_root / gc.CONFIG_FILE_MAIN)
     loc_cfg = ConfigData(project_root / gc.CONFIG_FILE_LOCATION)
 
-    # Resolve log directory
     log_dir = loc_cfg.get_value('Location/logs') or 'logs'
     if not os.path.isabs(log_dir):
         log_dir = str(project_root / log_dir)
@@ -30,19 +28,19 @@ def main():
     log_obj = setup_logger_common(gc.MAIN_LOG_NAME, log_level, log_dir, log_filename, mirror_to_stdout)
     logger = log_obj['logger']
 
-    # Set runtime globals
-    gc.APP_LOG_DIR = log_dir
-    gc.INPUT_DATA_DIR = loc_cfg.get_value('Location/input_data') or ''
-    gc.OUTPUT_DATA_DIR = loc_cfg.get_value('Location/output_data') or ''
-
     logger.info('MC Copy Number Processing started.')
-    logger.info(f'Input data directory: {gc.INPUT_DATA_DIR}')
-    logger.info(f'Output data directory: {gc.OUTPUT_DATA_DIR}')
 
-    # TODO: main processing logic will go here
+    # Step 1 - Alignment
+    from mc_copy_number_alignment import run_alignment
+    run_alignment(logger)
+
+    # Step 2 - Counts (placeholder)
+    # from mc_copy_number_counts import run_counts
+    # run_counts(logger)
 
     logger.info('MC Copy Number Processing completed.')
 
 
 if __name__ == '__main__':
     main()
+

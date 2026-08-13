@@ -1,0 +1,35 @@
+provider:
+    name: NairLab
+    # Name of this provider's folder under the run_folders_dir (e.g. .../runFolders/NairLab)
+    source_folder_name: NairLab
+    # Provider type determines which Python class handles extraction
+    type: excel
+    # Glob pattern for files to pick up from the ready subfolder
+    file_pattern: "*.xlsx"
+
+extraction:
+    # Name of the sheet to read; null means the first/active sheet
+    sheet_name: null
+    # 1-indexed row number that contains column headers
+    header_row: 3
+    # 1-indexed first row of actual data (row after the header row)
+    data_start_row: 4
+    # Strategy for detecting the end of data rows.
+    # "first_empty" = stop when the anchor column value is None/empty
+    data_end_strategy: first_empty
+    # Output field name to watch for emptiness when using first_empty strategy
+    data_end_anchor_field: aliquot_id
+
+    # Column mapping: output_field_name -> extraction details
+    # column_index: 1-based Excel column number (A=1, B=2, ..., K=11, V=22, W=23)
+    # source_header: expected header text in the file (used for validation; warning if mismatch)
+    columns:
+        aliquot_id:
+            source_header: "Biospecimen ID"
+            column_index: 11    # Column K
+        mtDNA_copy_num_mean:
+            source_header: "mean"
+            column_index: 22    # Column V
+        mtDNA_copy_num_SE:
+            source_header: "SE"
+            column_index: 23    # Column W

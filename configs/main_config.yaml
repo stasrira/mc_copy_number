@@ -3,3 +3,20 @@ Logging:
     log_level: INFO
     # If True (default), every log entry written to a log file is also mirrored to stdout
     mirror_to_stdout: True
+
+Alignment:
+    # Sub-directory under mitCopyN_studies_dir (location config) that holds provider run folders
+    run_folders_dir: runFolders
+    # Sub-directory under mitCopyN_studies_dir where converted files are written
+    raw_data_dir: raw_data
+    # Sub-folder name inside each provider run folder containing files ready for processing
+    ready_subfolder: ready
+    # Sub-folder name used to atomically claim a file before processing (prevents double-processing)
+    processing_temp_subfolder: temp_processing
+    # Sub-folder name where source files are moved after successful processing
+    processed_subfolder: processed
+    # Sub-folder name where source files are moved after a processing error (for manual intervention)
+    reprocess_subfolder: reprocess
+    # Path (relative to project root) to the directory holding per-provider config sub-folders
+    providers_config_dir: configs/providers
+

@@ -33,4 +33,9 @@ Alignment:
 Counts:
     # Sub-directory under mitCopyN_studies_dir where transposed count table files are written
     processed_data_dir: processed_data
+    # Number of parent folder levels to preserve from the input CSV path when building the
+    # output path under processed_data_dir.
+    # depth=1 (default): <timestamp_stem>/file.csv  →  processed_data/<timestamp_stem>/file.csv
+    # depth=2:           raw_data/<timestamp_stem>/file.csv  →  processed_data/raw_data/<timestamp_stem>/file.csv
+    output_path_depth: 1
 

@@ -47,18 +47,29 @@ def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: P
     return True
 
 
-def _process_one_file(csv_path: Path, raw_data_dir: Path, processed_data_dir: Path,
-                      schema_fields: dict, logger) -> bool:
+def _process_one_file(csv_path: Path, processed_data_dir: Path,
+                      schema_fields: dict, output_path_depth: int, logger) -> bool:
     """Transpose a single alignment CSV and write the count table to processed_data.
 
     :param csv_path: Path to the alignment CSV in raw_data
-    :param raw_data_dir: Base raw_data directory (used to compute relative path)
     :param processed_data_dir: Base processed_data directory for output
     :param schema_fields: Dict of schema_key → canonical_column_name from main_config
+    :param output_path_depth: Number of parent folder levels from csv_path to preserve in output path
     :param logger: application logger
     :returns: True on success, False on failure
     """
     logger.info(f'Processing counts for: "{csv_path}"')
+
+    # Validate that the path has enough parent folders for the configured depth
+    # csv_path.parts includes the filename itself, so we need depth+1 parts minimum
+    available_depth = len(csv_path.parts) - 1  # exclude the filename part
+    if available_depth < output_path_depth:
+        logger.error(
+            f'Cannot build output path for "{csv_path}": '
+            f'output_path_depth={output_path_depth} but the path only has '
+            f'{available_depth} parent folder(s).'
+        )
+        return False
 
     try:
         df = pd.read_csv(csv_path)
@@ -82,18 +93,10 @@ def _process_one_file(csv_path: Path, raw_data_dir: Path, processed_data_dir: Pa
         logger.error(f'Failed to transpose data from "{csv_path.name}":\n' + traceback.format_exc())
         return False
 
-    # Mirror the raw_data subfolder structure under processed_data
-    try:
-        relative_path = csv_path.relative_to(raw_data_dir)
-    except ValueError:
-        # csv_path is not under raw_data_dir — use just the filename
-        logger.warning(
-            f'"{csv_path}" is not under raw_data dir "{raw_data_dir}". '
-            f'Output will be written directly to processed_data root.'
-        )
-        relative_path = Path(csv_path.name)
-
+    # Build output path: take (output_path_depth) parent folders + filename from csv_path
+    relative_path = Path(*csv_path.parts[-(output_path_depth + 1):])
     out_path = processed_data_dir / relative_path
+
     try:
         os.makedirs(out_path.parent, exist_ok=True)
         df_counts.to_csv(out_path)
@@ -128,20 +131,21 @@ def run_counts(logger, aligned_csv_paths: list = None):
         return
 
     studies_dir = Path(studies_dir)
-    raw_data_dir = studies_dir / (main_cfg.get_value('Alignment/raw_data_dir') or 'raw_data')
     processed_data_dir = studies_dir / (main_cfg.get_value('Counts/processed_data_dir') or 'processed_data')
+    output_path_depth = int(main_cfg.get_value('Counts/output_path_depth') or 1)
 
     schema_fields: dict = main_cfg.get_value('Schema/fields') or {}
     if not schema_fields:
         logger.error('Schema/fields is not defined in main_config.yaml. Cannot validate columns. Aborting.')
         return
 
-    logger.info(f'Counts output dir: {processed_data_dir}')
+    logger.info(f'Counts output dir   : {processed_data_dir}')
+    logger.info(f'Output path depth   : {output_path_depth}')
 
     total_ok = 0
     total_failed = 0
     for csv_path in aligned_csv_paths:
-        ok = _process_one_file(Path(csv_path), raw_data_dir, processed_data_dir, schema_fields, logger)
+        ok = _process_one_file(Path(csv_path), processed_data_dir, schema_fields, output_path_depth, logger)
         if ok:
             total_ok += 1
         else:

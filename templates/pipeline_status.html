@@ -1,0 +1,24 @@
+<b>Mitochondrial Copy Number Processing - Status Report</b>
+<br/>
+<br/><b>Run time:</b> {{process.run_time}}
+<br/><b>Log file:</b> {{process.log_file}}
+<br/>
+<br/><b>Total files processed:</b> {{process.total_files}}
+<br/><b>Files with errors:</b>
+{% if process.files_with_errors > 0 %}
+    <span style="color:red"><b>{{process.files_with_errors}}</b></span>
+{% else %}
+    <span style="color:green">{{process.files_with_errors}}</span>
+{% endif %}
+<br/><b>Files with warnings:</b>
+{% if process.files_with_warnings > 0 %}
+    <span style="color:orange"><b>{{process.files_with_warnings}}</b></span>
+{% else %}
+    <span style="color:green">{{process.files_with_warnings}}</span>
+{% endif %}
+<br/>
+<br/>
+{% for file_section in process.file_sections %}
+    <br/>----------------------------------------------------<br/>
+    {{file_section}}
+{% endfor %}

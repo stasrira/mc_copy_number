@@ -20,6 +20,7 @@ from providers.provider_factory import create_provider
 from utils.common import get_project_root
 from utils.configuration import ConfigData
 from utils.log_utils import setup_logger_common
+from utils.issue_collector import FileRecord, CapturingLogHandler
 import utils.global_const as gc
 
 load_dotenv()
@@ -102,7 +103,7 @@ def run_alignment(logger):
         logger.warning('No provider configs found. Nothing to process.')
         return []
 
-    output_csv_paths = []
+    file_records = []
     total_processed = 0
     total_failed = 0
 
@@ -148,18 +149,26 @@ def run_alignment(logger):
         processor = AlignmentFileProcessor(provider, str(raw_data_dir), logger, schema_map=schema_fields)
 
         for file_path in ready_files:
-            out_path = processor.process_file(file_path, temp_dir, processed_dir, reprocess_dir)
-            if out_path is not None:
-                output_csv_paths.append(out_path)
-                total_processed += 1
-            else:
-                total_failed += 1
+            record = FileRecord(source_file=file_path.name, provider_name=provider_name)
+            handler = CapturingLogHandler(record)
+            logger.addHandler(handler)
+            try:
+                out_path = processor.process_file(file_path, temp_dir, processed_dir, reprocess_dir)
+                record.alignment_output = out_path
+                record.alignment_ok = out_path is not None
+                if out_path is not None:
+                    total_processed += 1
+                else:
+                    total_failed += 1
+            finally:
+                logger.removeHandler(handler)
+            file_records.append(record)
 
     logger.info(
         f'Alignment run complete. Files processed successfully: {total_processed}, '
         f'failed/skipped: {total_failed}.'
     )
-    return output_csv_paths
+    return file_records
 
 
 def main():

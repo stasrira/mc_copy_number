@@ -4,6 +4,15 @@ Logging:
     # If True (default), every log entry written to a log file is also mirrored to stdout
     mirror_to_stdout: True
 
+# Email settings for status reports
+Email:
+    send_emails: True
+    default_from_email: stas.rirak@mssm.edu
+    sent_to_emails: ['stasrirak.ms@gmail.com', 'stas.rirak@mssm.edu']
+    # Common prefix used in every status email subject line.
+    # Change here to rename the application across all email subjects.
+    email_subject_prefix: 'Mitochondrial Copy Number Processing'
+
 # Canonical output column names for the standardized alignment CSV.
 # Provider configs reference fields by their schema key (the left-hand side).
 # To rename an output column, change only the right-hand value here —

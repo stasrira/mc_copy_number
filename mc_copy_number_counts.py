@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from utils.common import get_project_root
 from utils.configuration import ConfigData
 from utils.log_utils import setup_logger_common
+from utils.issue_collector import FileRecord, CapturingLogHandler
 import utils.global_const as gc
 
 load_dotenv()
@@ -48,7 +49,7 @@ def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: P
 
 
 def _process_one_file(csv_path: Path, processed_data_dir: Path,
-                      schema_fields: dict, output_path_depth: int, logger) -> bool:
+                      schema_fields: dict, output_path_depth: int, logger) -> tuple[bool, Path | None]:
     """Transpose a single alignment CSV and write the count table to processed_data.
 
     :param csv_path: Path to the alignment CSV in raw_data
@@ -56,7 +57,7 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
     :param schema_fields: Dict of schema_key → canonical_column_name from main_config
     :param output_path_depth: Number of parent folder levels from csv_path to preserve in output path
     :param logger: application logger
-    :returns: True on success, False on failure
+    :returns: (success, output_path) tuple - (True, Path) on success, (False, None) on failure
     """
     logger.info(f'Processing counts for: "{csv_path}"')
 
@@ -69,13 +70,13 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
             f'output_path_depth={output_path_depth} but the path only has '
             f'{available_depth} parent folder(s).'
         )
-        return False
+        return False, None
 
     try:
         df = pd.read_csv(csv_path)
     except Exception:
         logger.error(f'Failed to read CSV "{csv_path}":\n' + traceback.format_exc())
-        return False
+        return False, None
 
     # Resolve canonical names from schema
     aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
@@ -83,7 +84,7 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
 
     required_cols = [aliquot_col] + measurement_cols
     if not _validate_columns(df, required_cols, csv_path, logger):
-        return False
+        return False, None
 
     # Transpose: set aliquot_id as index, keep only measurement columns, then transpose
     try:
@@ -91,7 +92,7 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
         df_counts.index.name = None
     except Exception:
         logger.error(f'Failed to transpose data from "{csv_path.name}":\n' + traceback.format_exc())
-        return False
+        return False, None
 
     # Build output path: take (output_path_depth) parent folders + filename from csv_path
     relative_path = Path(*csv_path.parts[-(output_path_depth + 1):])
@@ -106,20 +107,20 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
         )
     except Exception:
         logger.error(f'Failed to write counts table to "{out_path}":\n' + traceback.format_exc())
-        return False
+        return False, None
 
-    return True
+    return True, out_path
 
 
-def run_counts(logger, aligned_csv_paths: list = None):
-    """Run the counts step for a list of aligned CSV paths.
+def run_counts(logger, file_records: list = None):
+    """Run the counts step for a list of file records.
 
     :param logger: application logger
-    :param aligned_csv_paths: list of Path objects produced by run_alignment;
-                              if empty or None, logs a warning and returns.
+    :param file_records: list of FileRecord objects produced by run_alignment;
+                        if empty or None, logs a warning and returns.
     """
-    if not aligned_csv_paths:
-        logger.warning('Counts step: no aligned CSV paths provided. Nothing to process.')
+    if not file_records:
+        logger.warning('Counts step: no file records provided. Nothing to process.')
         return
 
     project_root = get_project_root()
@@ -144,12 +145,25 @@ def run_counts(logger, aligned_csv_paths: list = None):
 
     total_ok = 0
     total_failed = 0
-    for csv_path in aligned_csv_paths:
-        ok = _process_one_file(Path(csv_path), processed_data_dir, schema_fields, output_path_depth, logger)
-        if ok:
-            total_ok += 1
-        else:
-            total_failed += 1
+    for record in file_records:
+        if record.alignment_output is None:
+            # Alignment failed, skip counts
+            continue
+        
+        handler = CapturingLogHandler(record)
+        logger.addHandler(handler)
+        try:
+            ok, out_path = _process_one_file(
+                Path(record.alignment_output), processed_data_dir, schema_fields, output_path_depth, logger
+            )
+            record.counts_ok = ok
+            record.counts_output = out_path
+            if ok:
+                total_ok += 1
+            else:
+                total_failed += 1
+        finally:
+            logger.removeHandler(handler)
 
     logger.info(f'Counts run complete. Files written: {total_ok}, failed: {total_failed}.')
 
@@ -184,7 +198,13 @@ def main():
 
     logger.info('=== MC Copy Number Counts started (standalone) ===')
     try:
-        run_counts(logger, aligned_csv_paths=[Path(args.input)])
+        # Create a dummy FileRecord for standalone processing
+        input_path = Path(args.input)
+        dummy_record = FileRecord(source_file=input_path.name, provider_name='standalone')
+        dummy_record.alignment_output = input_path
+        dummy_record.alignment_ok = True
+        
+        run_counts(logger, file_records=[dummy_record])
     except Exception:
         logger.critical('Unexpected error during counts:\n' + traceback.format_exc())
     logger.info('=== MC Copy Number Counts finished ===')

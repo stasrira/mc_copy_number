@@ -6,12 +6,17 @@ class FileRecord:
     def __init__(self, source_file: str, provider_name: str):
         self.source_file = source_file
         self.provider_name = provider_name
-        self.alignment_output = None   # Path or None
-        self.counts_output = None      # Path or None
+        self.alignment_output = None          # Path or None
+        self.counts_output = None             # Path or None
         self.alignment_ok = False
         self.counts_ok = False
-        self.errors = []               # list of str (message text only)
-        self.warnings = []             # list of str
+        self.alignment_ran = True             # False when alignment step was not executed
+        self.counts_ran = True                # False when counts step was not executed
+        self.aliquots = []                    # list of aliquot ID strings (populated after alignment)
+        self.alignment_aliquot_count = 0      # number of aliquots from the alignment step
+        self.counts_aliquot_count = 0         # number of aliquots from the counts step
+        self.errors = []                      # list of str (message text only)
+        self.warnings = []                    # list of str
 
 
 class CapturingLogHandler(logging.Handler):

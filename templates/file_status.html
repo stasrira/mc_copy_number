@@ -1,40 +1,55 @@
 <b>Source file:</b> {{process.source_file}}
 <br/><b>Provider:</b> {{process.provider_name}}
 <br/>
-<b>Alignment:</b>
-{% if process.alignment_ok %}
+<br/><b>File Alignment:</b>
+{% if not process.alignment_ran %}
+    <span style="color:gray">N/A</span>
+{% elif process.alignment_ok %}
     <span style="color:green"><b>OK</b></span>
+    <br/>Aliquots processed: <b>{{process.alignment_aliquot_count}}</b>
+    {% if process.alignment_output %}
+    <br/>Aligned CSV: {{process.alignment_output}}
+    {% endif %}
 {% else %}
     <span style="color:red"><b>FAILED</b></span>
 {% endif %}
-{% if process.alignment_output %}
-    <br/>Aligned CSV: {{process.alignment_output}}
-{% endif %}
 <br/>
-<b>Counts:</b>
-{% if process.counts_skipped %}
+<br/><b>Process Counts:</b>
+{% if not process.counts_ran %}
+    <span style="color:gray">N/A</span>
+{% elif process.counts_skipped %}
     <span style="color:gray">Skipped (alignment failed)</span>
 {% elif process.counts_ok %}
     <span style="color:green"><b>OK</b></span>
+    <br/>Aliquots processed: <b>{{process.counts_aliquot_count}}</b>
+    {% if process.counts_output %}
+    <br/>Counts CSV: {{process.counts_output}}
+    {% endif %}
 {% else %}
     <span style="color:red"><b>FAILED</b></span>
 {% endif %}
-{% if process.counts_output %}
-    <br/>Counts CSV: {{process.counts_output}}
-{% endif %}
 {% if process.warnings %}
-    <br/><span style="color:orange"><b>Warnings:</b></span>
-    <ul>
-    {% for warning in process.warnings %}
-        <li><span style="color:orange">{{warning}}</span></li>
-    {% endfor %}
-    </ul>
+<br/>
+<br/><span style="color:orange"><b>Warnings:</b></span>
+<ul>
+{% for warning in process.warnings %}
+    <li><span style="color:orange">{{warning}}</span></li>
+{% endfor %}
+</ul>
 {% endif %}
 {% if process.errors %}
-    <br/><span style="color:red"><b>Errors:</b></span>
-    <ul>
-    {% for error in process.errors %}
-        <li><span style="color:red"><b>{{error}}</b></span></li>
-    {% endfor %}
-    </ul>
+<br/><span style="color:red"><b>Errors:</b></span>
+<ul>
+{% for error in process.errors %}
+    <li><span style="color:red"><b>{{error}}</b></span></li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if process.aliquots %}
+<br/>
+<br/><b>Processed aliquots</b> ({{process.aliquots|length}} total):
+<br/>
+{% for aliquot in process.aliquots %}
+{{aliquot}}<br/>
+{% endfor %}
 {% endif %}

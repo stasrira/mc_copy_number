@@ -20,7 +20,7 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
-from utils.common import get_project_root
+from utils.common import get_project_root, send_status_email
 from utils.configuration import ConfigData
 from utils.log_utils import setup_logger_common
 from utils.issue_collector import FileRecord, CapturingLogHandler
@@ -57,7 +57,7 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
     :param schema_fields: Dict of schema_key → canonical_column_name from main_config
     :param output_path_depth: Number of parent folder levels from csv_path to preserve in output path
     :param logger: application logger
-    :returns: (success, output_path) tuple - (True, Path) on success, (False, None) on failure
+    :returns: (success, output_path, aliquot_count) tuple
     """
     logger.info(f'Processing counts for: "{csv_path}"')
 
@@ -70,13 +70,13 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
             f'output_path_depth={output_path_depth} but the path only has '
             f'{available_depth} parent folder(s).'
         )
-        return False, None
+        return False, None, 0
 
     try:
         df = pd.read_csv(csv_path)
     except Exception:
         logger.error(f'Failed to read CSV "{csv_path}":\n' + traceback.format_exc())
-        return False, None
+        return False, None, 0
 
     # Resolve canonical names from schema
     aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
@@ -84,7 +84,7 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
 
     required_cols = [aliquot_col] + measurement_cols
     if not _validate_columns(df, required_cols, csv_path, logger):
-        return False, None
+        return False, None, 0
 
     # Transpose: set aliquot_id as index, keep only measurement columns, then transpose
     try:
@@ -92,7 +92,9 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
         df_counts.index.name = None
     except Exception:
         logger.error(f'Failed to transpose data from "{csv_path.name}":\n' + traceback.format_exc())
-        return False, None
+        return False, None, 0
+
+    aliquot_count = len(df_counts.columns)
 
     # Build output path: take (output_path_depth) parent folders + filename from csv_path
     relative_path = Path(*csv_path.parts[-(output_path_depth + 1):])
@@ -102,14 +104,14 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
         os.makedirs(out_path.parent, exist_ok=True)
         df_counts.to_csv(out_path)
         logger.info(
-            f'Counts table saved ({len(df_counts.columns)} aliquot(s), '
+            f'Counts table saved ({aliquot_count} aliquot(s), '
             f'{len(df_counts)} measurement(s)) → "{out_path}"'
         )
     except Exception:
         logger.error(f'Failed to write counts table to "{out_path}":\n' + traceback.format_exc())
-        return False, None
+        return False, None, 0
 
-    return True, out_path
+    return True, out_path, aliquot_count
 
 
 def run_counts(logger, file_records: list = None):
@@ -153,11 +155,12 @@ def run_counts(logger, file_records: list = None):
         handler = CapturingLogHandler(record)
         logger.addHandler(handler)
         try:
-            ok, out_path = _process_one_file(
+            ok, out_path, aliquot_count = _process_one_file(
                 Path(record.alignment_output), processed_data_dir, schema_fields, output_path_depth, logger
             )
             record.counts_ok = ok
             record.counts_output = out_path
+            record.counts_aliquot_count = aliquot_count
             if ok:
                 total_ok += 1
             else:
@@ -197,16 +200,21 @@ def main():
     logger = log_obj['logger']
 
     logger.info('=== MC Copy Number Counts started (standalone) ===')
+    file_records = []
     try:
         # Create a dummy FileRecord for standalone processing
         input_path = Path(args.input)
-        dummy_record = FileRecord(source_file=input_path.name, provider_name='standalone')
+        dummy_record = FileRecord(source_file=str(input_path), provider_name='standalone')
         dummy_record.alignment_output = input_path
         dummy_record.alignment_ok = True
-        
-        run_counts(logger, file_records=[dummy_record])
+        dummy_record.alignment_ran = False
+        file_records = [dummy_record]
+        run_counts(logger, file_records=file_records)
     except Exception:
         logger.critical('Unexpected error during counts:\n' + traceback.format_exc())
+
+    send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
+                      subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - Counts')
     logger.info('=== MC Copy Number Counts finished ===')
 
 

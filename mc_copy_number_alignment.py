@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 from alignment.file_processor import AlignmentFileProcessor
 from providers.provider_factory import create_provider
-from utils.common import get_project_root
+from utils.common import get_project_root, send_status_email
 from utils.configuration import ConfigData
 from utils.log_utils import setup_logger_common
 from utils.issue_collector import FileRecord, CapturingLogHandler
@@ -149,7 +149,7 @@ def run_alignment(logger):
         processor = AlignmentFileProcessor(provider, str(raw_data_dir), logger, schema_map=schema_fields)
 
         for file_path in ready_files:
-            record = FileRecord(source_file=file_path.name, provider_name=provider_name)
+            record = FileRecord(source_file=str(file_path), provider_name=provider_name)
             handler = CapturingLogHandler(record)
             logger.addHandler(handler)
             try:
@@ -158,6 +158,16 @@ def run_alignment(logger):
                 record.alignment_ok = out_path is not None
                 if out_path is not None:
                     total_processed += 1
+                    # Extract aliquot IDs from the aligned CSV
+                    aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
+                    try:
+                        import pandas as pd
+                        df = pd.read_csv(out_path)
+                        if aliquot_col in df.columns:
+                            record.aliquots = df[aliquot_col].astype(str).tolist()
+                            record.alignment_aliquot_count = len(record.aliquots)
+                    except Exception:
+                        logger.warning(f'[{provider_name}] Could not extract aliquot IDs from "{out_path.name}".')
                 else:
                     total_failed += 1
             finally:
@@ -186,11 +196,17 @@ def main():
     logger = log_obj['logger']
 
     logger.info('=== MC Copy Number Alignment started ===')
+    file_records = []
     try:
-        run_alignment(logger)
+        file_records = run_alignment(logger)
+        for r in file_records:
+            r.counts_ran = False
     except Exception:
         import traceback
         logger.critical('Unexpected error during alignment:\n' + traceback.format_exc())
+
+    send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
+                      subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - Alignment')
     logger.info('=== MC Copy Number Alignment finished ===')
 
 

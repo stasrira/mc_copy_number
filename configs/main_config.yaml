@@ -4,19 +4,33 @@ Logging:
     # If True (default), every log entry written to a log file is also mirrored to stdout
     mirror_to_stdout: True
 
+# Canonical output column names for the standardized alignment CSV.
+# Provider configs reference fields by their schema key (the left-hand side).
+# To rename an output column, change only the right-hand value here —
+# no provider config update is needed.
+Schema:
+  fields:
+    aliquot_id: aliquot_id
+    mtdna_mean: mtDNA_copy_num_mean
+    mtdna_se: mtDNA_copy_num_SE
+
 Alignment:
     # Sub-directory under mitCopyN_studies_dir (location config) that holds provider run folders
     run_folders_dir: runFolders
     # Sub-directory under mitCopyN_studies_dir where converted files are written
     raw_data_dir: raw_data
-    # Sub-folder name inside each provider run folder containing files ready for processing
+    # Sub-folder name inside each provider's run folder (runFolders/<Provider>/) containing files ready for processing
     ready_subfolder: ready
-    # Sub-folder name used to atomically claim a file before processing (prevents double-processing)
+    # Sub-folder name inside each provider's run folder used to atomically claim a file before processing (prevents double-processing)
     processing_temp_subfolder: temp_processing
-    # Sub-folder name where source files are moved after successful processing
+    # Sub-folder name inside each provider's run folder where source files are moved after successful processing
     processed_subfolder: processed
-    # Sub-folder name where source files are moved after a processing error (for manual intervention)
+    # Sub-folder name inside each provider's run folder where source files are moved after a processing error (for manual intervention)
     reprocess_subfolder: reprocess
     # Path (relative to project root) to the directory holding per-provider config sub-folders
     providers_config_dir: configs/providers
+
+Counts:
+    # Sub-directory under mitCopyN_studies_dir where transposed count table files are written
+    processed_data_dir: processed_data
 

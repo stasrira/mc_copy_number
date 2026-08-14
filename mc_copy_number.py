@@ -32,11 +32,11 @@ def main():
 
     # Step 1 - Alignment
     from mc_copy_number_alignment import run_alignment
-    run_alignment(logger)
+    aligned_csv_paths = run_alignment(logger)
 
-    # Step 2 - Counts (placeholder)
-    # from mc_copy_number_counts import run_counts
-    # run_counts(logger)
+    # Step 2 - Counts
+    from mc_copy_number_counts import run_counts
+    run_counts(logger, aligned_csv_paths)
 
     logger.info('MC Copy Number Processing completed.')
 

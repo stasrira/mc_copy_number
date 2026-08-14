@@ -74,7 +74,7 @@ def run_alignment(logger):
     studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
     if not studies_dir:
         logger.error('Location/mitCopyN_studies_dir is not set in location_config.yaml. Aborting.')
-        return
+        return []
 
     studies_dir = Path(studies_dir)
     run_folders_dir = studies_dir / (main_cfg.get_value('Alignment/run_folders_dir') or 'runFolders')
@@ -91,12 +91,18 @@ def run_alignment(logger):
     logger.info(f'Raw data output  : {raw_data_dir}')
     logger.info(f'Providers config : {providers_config_dir}')
 
+    # Load schema: maps schema_key → canonical column name
+    schema_fields = main_cfg.get_value('Schema/fields') or {}
+    if not schema_fields:
+        logger.warning('Schema/fields is not defined in main_config.yaml. Columns will not be renamed.')
+
     # Discover all provider configs
     provider_configs = _discover_providers(providers_config_dir, logger)
     if not provider_configs:
         logger.warning('No provider configs found. Nothing to process.')
-        return
+        return []
 
+    output_csv_paths = []
     total_processed = 0
     total_failed = 0
 
@@ -139,11 +145,12 @@ def run_alignment(logger):
             logger.error(f'[{provider_name}] Cannot create provider: {e}')
             continue
 
-        processor = AlignmentFileProcessor(provider, str(raw_data_dir), logger)
+        processor = AlignmentFileProcessor(provider, str(raw_data_dir), logger, schema_map=schema_fields)
 
         for file_path in ready_files:
-            success = processor.process_file(file_path, temp_dir, processed_dir, reprocess_dir)
-            if success:
+            out_path = processor.process_file(file_path, temp_dir, processed_dir, reprocess_dir)
+            if out_path is not None:
+                output_csv_paths.append(out_path)
                 total_processed += 1
             else:
                 total_failed += 1
@@ -152,6 +159,7 @@ def run_alignment(logger):
         f'Alignment run complete. Files processed successfully: {total_processed}, '
         f'failed/skipped: {total_failed}.'
     )
+    return output_csv_paths
 
 
 def main():

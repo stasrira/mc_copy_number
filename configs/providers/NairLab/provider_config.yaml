@@ -20,16 +20,18 @@ extraction:
     # Output field name to watch for emptiness when using first_empty strategy
     data_end_anchor_field: aliquot_id
 
-    # Column mapping: output_field_name -> extraction details
+    # Column mapping: schema_key -> extraction details
+    # schema_key: stable identifier matching a key under Schema/fields in main_config.yaml.
+    #   The actual output column name is resolved from the schema at runtime.
     # column_index: 1-based Excel column number (A=1, B=2, ..., K=11, V=22, W=23)
     # source_header: expected header text in the file (used for validation; warning if mismatch)
     columns:
         aliquot_id:
             source_header: "Biospecimen ID"
             column_index: 11    # Column K
-        mtDNA_copy_num_mean:
+        mtdna_mean:
             source_header: "mean"
             column_index: 22    # Column V
-        mtDNA_copy_num_SE:
+        mtdna_se:
             source_header: "SE"
             column_index: 23    # Column W

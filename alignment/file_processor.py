@@ -72,12 +72,13 @@ class AlignmentFileProcessor:
             if df.empty:
                 self.logger.error(
                     f'[{self.provider.name}] Extraction produced 0 rows from "{file_name}". '
-                    f'Moving to reprocess folder.'
+                    f'Possible cause: wrong file format or expected column headers were not found '
+                    f'(check header mismatch warnings above). Moving to reprocess folder.'
                 )
                 os.makedirs(reprocess_dir, exist_ok=True)
                 reprocess_file_path = reprocess_dir / file_name
                 shutil.move(str(temp_file_path), str(reprocess_file_path))
-                self.logger.error(
+                self.logger.warning(
                     f'[{self.provider.name}] Moved "{file_name}" to reprocess folder: "{reprocess_dir}"'
                 )
                 return None
@@ -125,7 +126,7 @@ class AlignmentFileProcessor:
                 os.makedirs(reprocess_dir, exist_ok=True)
                 reprocess_file_path = reprocess_dir / file_name
                 shutil.move(str(temp_file_path), str(reprocess_file_path))
-                self.logger.error(
+                self.logger.warning(
                     f'[{self.provider.name}] Moved "{file_name}" to reprocess folder: "{reprocess_dir}"'
                 )
             except Exception:

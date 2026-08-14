@@ -35,7 +35,7 @@ Alignment:
     # Sub-folder name inside each provider's run folder where source files are moved after successful processing
     processed_subfolder: processed
     # Sub-folder name inside each provider's run folder where source files are moved after a processing error (for manual intervention)
-    reprocess_subfolder: reprocess
+    reprocess_subfolder: work
     # Path (relative to project root) to the directory holding per-provider config sub-folders
     providers_config_dir: configs/providers
 

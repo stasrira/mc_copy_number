@@ -4,6 +4,21 @@ Logging:
     # If True (default), every log entry written to a log file is also mirrored to stdout
     mirror_to_stdout: True
 
+# Database connection for aliquot validation
+Database:
+    connection:
+        mdb_conn_str: "Driver={!driver!};Server={!server!};Database={!db_name!};UID={!db_user_name!};PWD={!db_user_pwd!};TrustServerCertificate=yes;"
+        db_plh_driver: "{!driver!}"
+        db_plh_server: "{!server!}"
+        db_plh_db_name: "{!db_name!}"
+        db_plh_user_name: "{!db_user_name!}"
+        db_plh_user_pwd: "{!db_user_pwd!}"
+        env_db_driver: MC_DB_DRIVER      # name of the environment variable holding the value
+        env_db_server: MC_DB_SERVER
+        env_db_name: MC_DB_NAME
+        env_db_user_name: MC_DB_USER_NAME
+        env_db_user_pwd: MC_DB_USER_PWD
+
 # Email settings for status reports
 Email:
     send_emails: True
@@ -38,6 +53,13 @@ Alignment:
     reprocess_subfolder: work
     # Path (relative to project root) to the directory holding per-provider config sub-folders
     providers_config_dir: configs/providers
+    # When True, each processed file's aliquot IDs are validated against the metadata database
+    # after alignment completes. Requires Database/connection settings and DB credentials in .env.
+    validate_aliquots_against_db: True
+    # When True (and validate_aliquots_against_db is True), the Counts step runs automatically
+    # after a successful alignment + DB validation (all aliquots found, single program code).
+    # Has no effect when running mc_copy_number_alignment.py standalone.
+    allow_automated_counts_processing: True
 
 Counts:
     # Sub-directory under mitCopyN_studies_dir where transposed count table files are written

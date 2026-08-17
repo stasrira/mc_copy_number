@@ -31,13 +31,47 @@ def main():
 
     logger.info('MC Copy Number Processing started.')
 
-    # Step 1 - Alignment
+    # Step 1 - Alignment (includes DB aliquot validation when configured)
     from mc_copy_number_alignment import run_alignment
     file_records = run_alignment(logger)
 
-    # Step 2 - Counts
+    # Step 2 - Counts (only when allowed and all validations passed)
     from mc_copy_number_counts import run_counts
-    run_counts(logger, file_records)
+    allow_counts = main_cfg.get_value('Alignment/allow_automated_counts_processing')
+    validate_enabled = main_cfg.get_value('Alignment/validate_aliquots_against_db')
+
+    successful_records = [r for r in file_records if r.alignment_ok]
+    if not successful_records:
+        logger.info('No successfully aligned files — skipping Counts step.')
+    elif not allow_counts:
+        logger.info(
+            'Automated Counts processing is disabled (allow_automated_counts_processing=False). '
+            'Skipping Counts step.'
+        )
+        for r in file_records:
+            r.counts_ran = False
+    elif validate_enabled:
+        # Only run counts for files that passed DB validation
+        failed_validation = [r for r in successful_records if not r.db_validation_ok]
+        validated_records = [r for r in file_records if r.alignment_ok and r.db_validation_ok]
+        if failed_validation:
+            logger.warning(
+                f'Counts processing will be attempted for {len(validated_records)} of '
+                f'{len(successful_records)} successfully aligned file(s) '
+                f'({len(failed_validation)} failed DB aliquot validation — all aliquots in a file '
+                f'must pass validation before Counts processing can proceed for that file).'
+            )
+        # Mark records that should not run counts
+        for r in file_records:
+            if r.alignment_ok and not r.db_validation_ok:
+                r.counts_ran = False
+        # Run counts only for validated records (run_counts skips alignment_output=None)
+        if validated_records:
+            run_counts(logger, validated_records)
+        else:
+            logger.warning('No files passed DB validation — Counts step skipped entirely.')
+    else:
+        run_counts(logger, file_records)
 
     # Step 3 - Send status email
     send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg)

@@ -49,7 +49,8 @@ def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: P
 
 
 def _process_one_file(csv_path: Path, processed_data_dir: Path,
-                      schema_fields: dict, output_path_depth: int, logger) -> tuple[bool, Path | None]:
+                      schema_fields: dict, output_path_depth: int, logger,
+                      program_code: str = None) -> tuple[bool, Path | None, int]:
     """Transpose a single alignment CSV and write the count table to processed_data.
 
     :param csv_path: Path to the alignment CSV in raw_data
@@ -57,6 +58,8 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
     :param schema_fields: Dict of schema_key → canonical_column_name from main_config
     :param output_path_depth: Number of parent folder levels from csv_path to preserve in output path
     :param logger: application logger
+    :param program_code: When provided, a sub-directory named after the program code is inserted
+                         directly under processed_data_dir (e.g. processed_data/ECHO_Code/<run>/file.csv)
     :returns: (success, output_path, aliquot_count) tuple
     """
     logger.info(f'Processing counts for: "{csv_path}"')
@@ -96,9 +99,12 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
 
     aliquot_count = len(df_counts.columns)
 
-    # Build output path: take (output_path_depth) parent folders + filename from csv_path
+    # Build output path: take (output_path_depth) parent folders + filename from csv_path.
+    # If a program_code is available, insert it as a sub-directory under processed_data_dir:
+    #   processed_data/<program_code>/<run_folder>/<file>.csv
     relative_path = Path(*csv_path.parts[-(output_path_depth + 1):])
-    out_path = processed_data_dir / relative_path
+    base_dir = processed_data_dir / program_code if program_code else processed_data_dir
+    out_path = base_dir / relative_path
 
     try:
         os.makedirs(out_path.parent, exist_ok=True)
@@ -143,7 +149,11 @@ def run_counts(logger, file_records: list = None):
         return
 
     logger.info(f'Counts output dir   : {processed_data_dir}')
-    logger.info(f'Output path depth   : {output_path_depth}')
+    logger.info(
+        f'Output path depth   : {output_path_depth} '
+        f'(number of parent folder levels from the input CSV path to preserve when building the output path '
+        f'under processed_data; e.g. depth=1 keeps only the immediate parent folder)'
+    )
 
     total_ok = 0
     total_failed = 0
@@ -156,7 +166,8 @@ def run_counts(logger, file_records: list = None):
         logger.addHandler(handler)
         try:
             ok, out_path, aliquot_count = _process_one_file(
-                Path(record.alignment_output), processed_data_dir, schema_fields, output_path_depth, logger
+                Path(record.alignment_output), processed_data_dir, schema_fields, output_path_depth, logger,
+                program_code=record.program_code,
             )
             record.counts_ok = ok
             record.counts_output = out_path
@@ -202,14 +213,56 @@ def main():
     logger.info('=== MC Copy Number Counts started (standalone) ===')
     file_records = []
     try:
-        # Create a dummy FileRecord for standalone processing
         input_path = Path(args.input)
         dummy_record = FileRecord(source_file=str(input_path), provider_name='standalone')
         dummy_record.alignment_output = input_path
         dummy_record.alignment_ok = True
         dummy_record.alignment_ran = False
         file_records = [dummy_record]
-        run_counts(logger, file_records=file_records)
+
+        # Extract aliquot IDs from the input CSV for DB validation
+        schema_fields: dict = main_cfg.get_value('Schema/fields') or {}
+        aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
+        try:
+            import pandas as pd
+            df = pd.read_csv(input_path)
+            if aliquot_col in df.columns:
+                dummy_record.aliquots = df[aliquot_col].astype(str).tolist()
+                dummy_record.alignment_aliquot_count = len(dummy_record.aliquots)
+            else:
+                logger.warning(
+                    f'Aliquot ID column "{aliquot_col}" not found in "{input_path.name}". '
+                    f'DB validation will be skipped.'
+                )
+        except Exception:
+            logger.warning(f'Could not read aliquot IDs from "{input_path.name}". DB validation will be skipped.\n'
+                           + traceback.format_exc())
+
+        # DB validation — same rules as the alignment step
+        handler = CapturingLogHandler(dummy_record)
+        logger.addHandler(handler)
+        try:
+            if main_cfg.get_value('Alignment/validate_aliquots_against_db') and dummy_record.aliquots:
+                logger.info(f'Validating {len(dummy_record.aliquots)} aliquot(s) against DB.')
+                from alignment.aliquot_db_validator import validate_aliquots
+                ok, program_code, val_errors = validate_aliquots(dummy_record.aliquots, main_cfg, logger)
+                dummy_record.db_validation_ok = ok
+                dummy_record.program_code = program_code
+                for err in val_errors:
+                    logger.error(err)
+                if not ok:
+                    logger.error(
+                        f'Aliquot DB validation failed for "{input_path.name}". '
+                        f'All aliquots must pass DB validation for Counts processing to proceed — '
+                        f'processing will be aborted.'
+                    )
+                    dummy_record.counts_ran = False
+        finally:
+            logger.removeHandler(handler)
+
+        if dummy_record.counts_ran:
+            run_counts(logger, file_records=file_records)
+
     except Exception:
         logger.critical('Unexpected error during counts:\n' + traceback.format_exc())
 

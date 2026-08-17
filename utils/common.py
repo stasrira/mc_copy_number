@@ -67,6 +67,8 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
                 'counts_ok':               record.counts_ok,
                 'counts_ran':              record.counts_ran,
                 'counts_skipped':          record.alignment_output is None,
+                'db_validation_ok':        record.db_validation_ok,
+                'program_code':            record.program_code,
                 'counts_output':           str(record.counts_output) if record.counts_output else '',
                 'counts_aliquot_count':    record.counts_aliquot_count,
                 'aliquots':                record.aliquots,

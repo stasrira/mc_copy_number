@@ -13,6 +13,16 @@
 {% else %}
     <span style="color:red"><b>FAILED</b></span>
 {% endif %}
+{% if process.alignment_ran and process.alignment_ok %}
+<br/>
+<br/><b>DB Aliquot Validation:</b>
+{% if process.db_validation_ok %}
+    <span style="color:green"><b>OK</b></span>
+    <br/>Program code: <b>{{process.program_code}}</b>
+{% else %}
+    <span style="color:red"><b>FAILED</b></span>
+{% endif %}
+{% endif %}
 <br/>
 <br/><b>Process Counts:</b>
 {% if not process.counts_ran %}

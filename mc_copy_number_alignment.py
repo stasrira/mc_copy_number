@@ -168,6 +168,23 @@ def run_alignment(logger):
                             record.alignment_aliquot_count = len(record.aliquots)
                     except Exception:
                         logger.warning(f'[{provider_name}] Could not extract aliquot IDs from "{out_path.name}".')
+
+                    # DB validation of aliquot IDs
+                    if main_cfg.get_value('Alignment/validate_aliquots_against_db') and record.aliquots:
+                        logger.info(f'[{provider_name}] Validating {len(record.aliquots)} aliquot(s) against DB.')
+                        from alignment.aliquot_db_validator import validate_aliquots
+                        ok, program_code, val_errors = validate_aliquots(record.aliquots, main_cfg, logger)
+                        record.db_validation_ok = ok
+                        record.program_code = program_code
+                        for err in val_errors:
+                            logger.error(f'[{provider_name}] {err}')
+                        if not ok:
+                            logger.error(
+                                f'[{provider_name}] Aliquot DB validation failed for '
+                                f'"{out_path.name}". All aliquots in a file must pass DB validation '
+                                f'for Counts processing to proceed — this file will be skipped in the '
+                                f'Counts step. Review the errors above for details on what needs to be corrected.'
+                            )
                 else:
                     total_failed += 1
             finally:

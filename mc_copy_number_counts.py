@@ -50,7 +50,8 @@ def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: P
 
 def _process_one_file(csv_path: Path, processed_data_dir: Path,
                       schema_fields: dict, output_path_depth: int, logger,
-                      program_code: str = None) -> tuple[bool, Path | None, int]:
+                      program_code: str = None,
+                      aliquot_filter: list[str] = None) -> tuple[bool, Path | None, int]:
     """Transpose a single alignment CSV and write the count table to processed_data.
 
     :param csv_path: Path to the alignment CSV in raw_data
@@ -60,6 +61,8 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
     :param logger: application logger
     :param program_code: When provided, a sub-directory named after the program code is inserted
                          directly under processed_data_dir (e.g. processed_data/ECHO_Code/<run>/file.csv)
+    :param aliquot_filter: When provided, only rows whose aliquot ID is in this list are included
+                           in the output (used when splitting by program in multi-program runs)
     :returns: (success, output_path, aliquot_count) tuple
     """
     logger.info(f'Processing counts for: "{csv_path}"')
@@ -91,7 +94,13 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
 
     # Transpose: set aliquot_id as index, keep only measurement columns, then transpose
     try:
-        df_counts = df[[aliquot_col] + measurement_cols].set_index(aliquot_col).transpose()
+        df_work = df[[aliquot_col] + measurement_cols]
+        if aliquot_filter is not None:
+            df_work = df_work[df_work[aliquot_col].isin(aliquot_filter)]
+            if df_work.empty:
+                logger.error(f'No rows remain after filtering to program aliquots in "{csv_path.name}".')
+                return False, None, 0
+        df_counts = df_work.set_index(aliquot_col).transpose()
         df_counts.index.name = None
     except Exception:
         logger.error(f'Failed to transpose data from "{csv_path.name}":\n' + traceback.format_exc())
@@ -161,21 +170,60 @@ def run_counts(logger, file_records: list = None):
         if record.alignment_output is None:
             # Alignment failed, skip counts
             continue
-        
+
         handler = CapturingLogHandler(record)
         logger.addHandler(handler)
         try:
-            ok, out_path, aliquot_count = _process_one_file(
-                Path(record.alignment_output), processed_data_dir, schema_fields, output_path_depth, logger,
-                program_code=record.program_code,
-            )
-            record.counts_ok = ok
-            record.counts_output = out_path
-            record.counts_aliquot_count = aliquot_count
-            if ok:
-                total_ok += 1
+            groups = record.program_groups  # {program_code: [aliquot_ids]} or empty
+            if len(groups) > 1:
+                # Multi-program: produce one output file per program
+                logger.info(
+                    f'Multi-program run detected for "{Path(record.alignment_output).name}": '
+                    f'creating separate counts files for {len(groups)} program(s): '
+                    f'{", ".join(sorted(groups))}.'
+                )
+                all_ok = True
+                for prog_code, prog_aliquots in sorted(groups.items()):
+                    logger.info(
+                        f'Processing counts for program "{prog_code}" '
+                        f'({len(prog_aliquots)} aliquot(s)).'
+                    )
+                    ok, out_path, aliquot_count = _process_one_file(
+                        Path(record.alignment_output), processed_data_dir,
+                        schema_fields, output_path_depth, logger,
+                        program_code=prog_code,
+                        aliquot_filter=prog_aliquots,
+                    )
+                    record.counts_outputs.append((prog_code, out_path))
+                    record.counts_aliquot_count += aliquot_count
+                    if not ok:
+                        all_ok = False
+                record.counts_ok = all_ok
+                # Set counts_output to the first successful path for backward compat
+                record.counts_output = next(
+                    (p for _, p in record.counts_outputs if p is not None), None
+                )
+                if all_ok:
+                    total_ok += 1
+                else:
+                    total_failed += 1
             else:
-                total_failed += 1
+                # Single-program (or no program info): existing behaviour
+                prog_code = record.program_code or (next(iter(groups)) if groups else None)
+                ok, out_path, aliquot_count = _process_one_file(
+                    Path(record.alignment_output), processed_data_dir,
+                    schema_fields, output_path_depth, logger,
+                    program_code=prog_code,
+                )
+                record.counts_ok = ok
+                record.counts_output = out_path
+                record.counts_aliquot_count = aliquot_count
+                if prog_code and out_path:
+                    record.counts_outputs.append((prog_code, out_path))
+                if ok:
+                    total_ok += 1
+                else:
+                    total_failed += 1
         finally:
             logger.removeHandler(handler)
 
@@ -243,11 +291,17 @@ def main():
         logger.addHandler(handler)
         try:
             if main_cfg.get_value('Alignment/validate_aliquots_against_db') and dummy_record.aliquots:
+                allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
                 logger.info(f'Validating {len(dummy_record.aliquots)} aliquot(s) against DB.')
                 from alignment.aliquot_db_validator import validate_aliquots
-                ok, program_code, val_errors = validate_aliquots(dummy_record.aliquots, main_cfg, logger)
+                ok, program_groups, val_errors = validate_aliquots(
+                    dummy_record.aliquots, main_cfg, logger, allow_multiple_programs=allow_multiple
+                )
                 dummy_record.db_validation_ok = ok
-                dummy_record.program_code = program_code
+                dummy_record.program_groups = program_groups or {}
+                dummy_record.program_code = (
+                    next(iter(program_groups)) if program_groups and len(program_groups) == 1 else None
+                )
                 for err in val_errors:
                     logger.error(err)
                 if not ok:

@@ -171,11 +171,17 @@ def run_alignment(logger):
 
                     # DB validation of aliquot IDs
                     if main_cfg.get_value('Alignment/validate_aliquots_against_db') and record.aliquots:
+                        allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
                         logger.info(f'[{provider_name}] Validating {len(record.aliquots)} aliquot(s) against DB.')
                         from alignment.aliquot_db_validator import validate_aliquots
-                        ok, program_code, val_errors = validate_aliquots(record.aliquots, main_cfg, logger)
+                        ok, program_groups, val_errors = validate_aliquots(
+                            record.aliquots, main_cfg, logger, allow_multiple_programs=allow_multiple
+                        )
                         record.db_validation_ok = ok
-                        record.program_code = program_code
+                        record.program_groups = program_groups or {}
+                        record.program_code = (
+                            next(iter(program_groups)) if program_groups and len(program_groups) == 1 else None
+                        )
                         for err in val_errors:
                             logger.error(f'[{provider_name}] {err}')
                         if not ok:

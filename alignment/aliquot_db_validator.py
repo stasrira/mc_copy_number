@@ -6,7 +6,9 @@ Uses the stored procedure usp_get_aliquot_dataset_main_ids_only with
 
 Validation rules:
   1. Every aliquot must exist in the database.
-  2. All aliquots must belong to exactly one program (one distinct _program_code).
+  2. If allow_multiple_programs is False: all aliquots must belong to exactly one program.
+     If allow_multiple_programs is True: multiple programs are allowed; aliquots are grouped
+     by program code for separate Counts output files.
 """
 
 from db.db_connection import MetadataDB
@@ -16,16 +18,20 @@ def validate_aliquots(
     aliquots: list[str],
     main_cfg,
     logger,
-) -> tuple[bool, str | None, list[str]]:
+    allow_multiple_programs: bool = False,
+) -> tuple[bool, dict[str, list[str]] | None, list[str]]:
     """Validate *aliquots* against the metadata DB.
 
-    :param aliquots:  List of aliquot ID strings to validate.
-    :param main_cfg:  ConfigData instance for main_config.yaml.
-    :param logger:    Application logger.
-    :returns: ``(ok, program_code, error_messages)``
+    :param aliquots:                List of aliquot ID strings to validate.
+    :param main_cfg:                ConfigData instance for main_config.yaml.
+    :param logger:                  Application logger.
+    :param allow_multiple_programs: When True, aliquots spanning multiple programs are accepted
+                                    and grouped by program code. When False (default), all aliquots
+                                    must belong to exactly one program.
+    :returns: ``(ok, program_groups, error_messages)``
 
-        * *ok*             – ``True`` when all aliquots are found and belong to one program.
-        * *program_code*   – The single ``_program_code`` value, or ``None`` on failure.
+        * *ok*             – ``True`` when all aliquots are found and program rules are satisfied.
+        * *program_groups* – ``{program_code: [aliquot_id, ...]}`` on success, ``None`` on failure.
         * *error_messages* – List of human-readable error strings (empty on success).
     """
     errors: list[str] = []
@@ -71,9 +77,13 @@ def validate_aliquots(
             )
             return False, None, errors
 
-        # Rule 2: all aliquots must belong to exactly one program
-        program_codes = {row['_program_code'] for row in rows if row.get('_program_code')}
-        if not program_codes:
+        # Build program_groups: {program_code: [aliquot_id, ...]}
+        program_groups: dict[str, list[str]] = {}
+        for row in rows:
+            code = row.get('_program_code') or ''
+            program_groups.setdefault(code, []).append(row['_aliquot_id'])
+
+        if not program_groups or (len(program_groups) == 1 and '' in program_groups):
             errors.append(
                 'Aliquot validation failed: the database returned no program code for the submitted '
                 'aliquots. This indicates a data registration issue — the aliquots may not be fully '
@@ -81,21 +91,23 @@ def validate_aliquots(
             )
             return False, None, errors
 
-        if len(program_codes) > 1:
+        # Rule 2: single-program enforcement (when allow_multiple_programs is False)
+        if len(program_groups) > 1 and not allow_multiple_programs:
             errors.append(
                 f'Aliquot validation failed: the submitted aliquots belong to more than one program '
-                f'({", ".join(sorted(program_codes))}). A single processing run must contain aliquots '
+                f'({", ".join(sorted(program_groups))}). A single processing run must contain aliquots '
                 f'from only one program. Please separate the aliquots by program and resubmit each '
-                f'group independently. If this is expected, an Analysis Request is required to proceed.'
+                f'group independently. If processing aliquots from multiple programs together is '
+                f'intentional, set "allow_multiple_programs: True" in main_config.yaml.'
             )
             return False, None, errors
 
-        program_code = next(iter(program_codes))
+        programs_summary = ', '.join(f'"{c}" ({len(v)} aliquot(s))' for c, v in sorted(program_groups.items()))
         logger.info(
-            f'Aliquot validation passed: {len(aliquots)} aliquot(s) validated, '
-            f'program code: "{program_code}".'
+            f'Aliquot validation passed: {len(aliquots)} aliquot(s) validated across '
+            f'{len(program_groups)} program(s): {programs_summary}.'
         )
-        return True, program_code, []
+        return True, program_groups, []
 
     finally:
         db.close()

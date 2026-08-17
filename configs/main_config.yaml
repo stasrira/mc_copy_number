@@ -60,6 +60,10 @@ Alignment:
     # after a successful alignment + DB validation (all aliquots found, single program code).
     # Has no effect when running mc_copy_number_alignment.py standalone.
     allow_automated_counts_processing: True
+    # When False (default), all aliquots in a file must belong to exactly one program for processing
+    # to proceed. When True, aliquots spanning multiple programs are accepted and Counts will produce
+    # a separate output file per program, each placed in its own program-named sub-folder.
+    allow_multiple_programs: True
 
 Counts:
     # Sub-directory under mitCopyN_studies_dir where transposed count table files are written

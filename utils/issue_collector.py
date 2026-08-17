@@ -13,7 +13,9 @@ class FileRecord:
         self.alignment_ran = True             # False when alignment step was not executed
         self.counts_ran = True                # False when counts step was not executed
         self.db_validation_ok = False         # True when aliquot DB validation passed
-        self.program_code = None              # _program_code returned from aliquot validation
+        self.program_code = None              # _program_code when all aliquots share one program
+        self.program_groups = {}             # {program_code: [aliquot_id, ...]} from DB validation
+        self.counts_outputs = []             # list of (program_code, Path) for each written counts file
         self.aliquots = []                    # list of aliquot ID strings (populated after alignment)
         self.alignment_aliquot_count = 0      # number of aliquots from the alignment step
         self.counts_aliquot_count = 0         # number of aliquots from the counts step

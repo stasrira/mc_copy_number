@@ -1,3 +1,7 @@
+{% if process.launch_param %}
+<b>Launch parameter:</b> {{process.launch_param}} {{process.launch_value}}
+<br/>
+{% endif %}
 <b>Source file:</b> {{process.source_file}}
 <br/><b>Provider:</b> {{process.provider_name}}
 <br/>
@@ -18,7 +22,14 @@
 <br/><b>DB Aliquot Validation:</b>
 {% if process.db_validation_ok %}
     <span style="color:green"><b>OK</b></span>
+    {% if process.program_groups|length > 1 %}
+    <br/>Programs ({{process.program_groups|length}}):
+    {% for code, aliquots in process.program_groups.items() %}
+    <br/>&nbsp;&nbsp;{{code}} — {{aliquots|length}} aliquot(s)
+    {% endfor %}
+    {% else %}
     <br/>Program code: <b>{{process.program_code}}</b>
+    {% endif %}
 {% else %}
     <span style="color:red"><b>FAILED</b></span>
 {% endif %}
@@ -32,7 +43,12 @@
 {% elif process.counts_ok %}
     <span style="color:green"><b>OK</b></span>
     <br/>Aliquots processed: <b>{{process.counts_aliquot_count}}</b>
-    {% if process.counts_output %}
+    {% if process.counts_outputs|length > 1 %}
+    <br/>Output files by program:
+    {% for code, path in process.counts_outputs %}
+    <br/>&nbsp;&nbsp;<b>{{code}}</b>: {{path}}
+    {% endfor %}
+    {% elif process.counts_output %}
     <br/>Counts CSV: {{process.counts_output}}
     {% endif %}
 {% else %}
@@ -51,7 +67,7 @@
 <br/><span style="color:red"><b>Errors:</b></span>
 <ul>
 {% for error in process.errors %}
-    <li><span style="color:red"><b>{{error}}</b></span></li>
+    <li><span style="color:red">{{error}}</span></li>
 {% endfor %}
 </ul>
 {% endif %}

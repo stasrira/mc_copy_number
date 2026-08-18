@@ -50,7 +50,8 @@ def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: P
 
 def _process_one_file(csv_path: Path, processed_data_dir: Path,
                       schema_fields: dict, output_path_depth: int, logger,
-                      program_code: str = None) -> tuple[bool, Path | None, int]:
+                      program_code: str = None,
+                      aliquot_filter: list[str] = None) -> tuple[bool, Path | None, int]:
     """Transpose a single alignment CSV and write the count table to processed_data.
 
     :param csv_path: Path to the alignment CSV in raw_data
@@ -60,6 +61,8 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
     :param logger: application logger
     :param program_code: When provided, a sub-directory named after the program code is inserted
                          directly under processed_data_dir (e.g. processed_data/ECHO_Code/<run>/file.csv)
+    :param aliquot_filter: When provided, only rows whose aliquot ID is in this list are included
+                           in the output (used when splitting by program in multi-program runs)
     :returns: (success, output_path, aliquot_count) tuple
     """
     logger.info(f'Processing counts for: "{csv_path}"')
@@ -91,7 +94,13 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
 
     # Transpose: set aliquot_id as index, keep only measurement columns, then transpose
     try:
-        df_counts = df[[aliquot_col] + measurement_cols].set_index(aliquot_col).transpose()
+        df_work = df[[aliquot_col] + measurement_cols]
+        if aliquot_filter is not None:
+            df_work = df_work[df_work[aliquot_col].isin(aliquot_filter)]
+            if df_work.empty:
+                logger.error(f'No rows remain after filtering to program aliquots in "{csv_path.name}".')
+                return False, None, 0
+        df_counts = df_work.set_index(aliquot_col).transpose()
         df_counts.index.name = None
     except Exception:
         logger.error(f'Failed to transpose data from "{csv_path.name}":\n' + traceback.format_exc())
@@ -161,21 +170,60 @@ def run_counts(logger, file_records: list = None):
         if record.alignment_output is None:
             # Alignment failed, skip counts
             continue
-        
+
         handler = CapturingLogHandler(record)
         logger.addHandler(handler)
         try:
-            ok, out_path, aliquot_count = _process_one_file(
-                Path(record.alignment_output), processed_data_dir, schema_fields, output_path_depth, logger,
-                program_code=record.program_code,
-            )
-            record.counts_ok = ok
-            record.counts_output = out_path
-            record.counts_aliquot_count = aliquot_count
-            if ok:
-                total_ok += 1
+            groups = record.program_groups  # {program_code: [aliquot_ids]} or empty
+            if len(groups) > 1:
+                # Multi-program: produce one output file per program
+                logger.info(
+                    f'Multi-program run detected for "{Path(record.alignment_output).name}": '
+                    f'creating separate counts files for {len(groups)} program(s): '
+                    f'{", ".join(sorted(groups))}.'
+                )
+                all_ok = True
+                for prog_code, prog_aliquots in sorted(groups.items()):
+                    logger.info(
+                        f'Processing counts for program "{prog_code}" '
+                        f'({len(prog_aliquots)} aliquot(s)).'
+                    )
+                    ok, out_path, aliquot_count = _process_one_file(
+                        Path(record.alignment_output), processed_data_dir,
+                        schema_fields, output_path_depth, logger,
+                        program_code=prog_code,
+                        aliquot_filter=prog_aliquots,
+                    )
+                    record.counts_outputs.append((prog_code, out_path))
+                    record.counts_aliquot_count += aliquot_count
+                    if not ok:
+                        all_ok = False
+                record.counts_ok = all_ok
+                # Set counts_output to the first successful path for backward compat
+                record.counts_output = next(
+                    (p for _, p in record.counts_outputs if p is not None), None
+                )
+                if all_ok:
+                    total_ok += 1
+                else:
+                    total_failed += 1
             else:
-                total_failed += 1
+                # Single-program (or no program info): existing behaviour
+                prog_code = record.program_code or (next(iter(groups)) if groups else None)
+                ok, out_path, aliquot_count = _process_one_file(
+                    Path(record.alignment_output), processed_data_dir,
+                    schema_fields, output_path_depth, logger,
+                    program_code=prog_code,
+                )
+                record.counts_ok = ok
+                record.counts_output = out_path
+                record.counts_aliquot_count = aliquot_count
+                if prog_code and out_path:
+                    record.counts_outputs.append((prog_code, out_path))
+                if ok:
+                    total_ok += 1
+                else:
+                    total_failed += 1
         finally:
             logger.removeHandler(handler)
 
@@ -186,11 +234,19 @@ def main():
     parser = argparse.ArgumentParser(
         description='MC Copy Number — Counts step. Transposes an alignment CSV into a count table.'
     )
-    parser.add_argument(
-        '--input', '-i',
-        required=True,
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        '--input_file', '-i',
         metavar='CSV_PATH',
         help='Path to an aligned CSV file produced by the alignment step (in raw_data).'
+    )
+    input_group.add_argument(
+        '--input_dir', '-d',
+        metavar='DIR_PATH',
+        help=(
+            'Path to a directory containing exactly one aligned CSV file. '
+            'An error is reported if the directory contains zero or more than one CSV file.'
+        )
     )
     args = parser.parse_args()
 
@@ -213,52 +269,150 @@ def main():
     logger.info('=== MC Copy Number Counts started (standalone) ===')
     file_records = []
     try:
-        input_path = Path(args.input)
-        dummy_record = FileRecord(source_file=str(input_path), provider_name='standalone')
-        dummy_record.alignment_output = input_path
-        dummy_record.alignment_ok = True
+        # Resolve input path from --input_file or --input_dir
+        # Create a placeholder record early so parameter errors are captured and emailed.
+        # source_file is set to N/A when --input_dir is used, since no file has been resolved yet;
+        # it will be updated to the actual CSV path once successfully found in the directory.
+        raw_source = args.input_file or args.input_dir
+        initial_source = 'N/A'
+        dummy_record = FileRecord(source_file=initial_source, provider_name='standalone')
         dummy_record.alignment_ran = False
+        dummy_record.launch_param = '--input_file' if args.input_file else '--input_dir'
+        dummy_record.launch_value = raw_source
         file_records = [dummy_record]
 
-        # Extract aliquot IDs from the input CSV for DB validation
-        schema_fields: dict = main_cfg.get_value('Schema/fields') or {}
-        aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
-        try:
-            import pandas as pd
-            df = pd.read_csv(input_path)
-            if aliquot_col in df.columns:
-                dummy_record.aliquots = df[aliquot_col].astype(str).tolist()
-                dummy_record.alignment_aliquot_count = len(dummy_record.aliquots)
-            else:
-                logger.warning(
-                    f'Aliquot ID column "{aliquot_col}" not found in "{input_path.name}". '
-                    f'DB validation will be skipped.'
-                )
-        except Exception:
-            logger.warning(f'Could not read aliquot IDs from "{input_path.name}". DB validation will be skipped.\n'
-                           + traceback.format_exc())
-
-        # DB validation — same rules as the alignment step
         handler = CapturingLogHandler(dummy_record)
         logger.addHandler(handler)
+        input_path = None
         try:
-            if main_cfg.get_value('Alignment/validate_aliquots_against_db') and dummy_record.aliquots:
-                logger.info(f'Validating {len(dummy_record.aliquots)} aliquot(s) against DB.')
-                from alignment.aliquot_db_validator import validate_aliquots
-                ok, program_code, val_errors = validate_aliquots(dummy_record.aliquots, main_cfg, logger)
-                dummy_record.db_validation_ok = ok
-                dummy_record.program_code = program_code
-                for err in val_errors:
-                    logger.error(err)
-                if not ok:
+            if args.input_file:
+                input_path = Path(args.input_file)
+                if not input_path.exists():
                     logger.error(
-                        f'Aliquot DB validation failed for "{input_path.name}". '
-                        f'All aliquots must pass DB validation for Counts processing to proceed — '
-                        f'processing will be aborted.'
+                        f'--input_file path does not exist: "{input_path}". '
+                        f'Please provide a valid path to an aligned CSV file.'
                     )
-                    dummy_record.counts_ran = False
+                    input_path = None
+                elif input_path.is_dir():
+                    logger.error(
+                        f'--input_file points to a directory, not a file: "{input_path}". '
+                        f'To process a CSV inside a directory use --input_dir instead.'
+                    )
+                    input_path = None
+                elif not input_path.is_file():
+                    logger.error(
+                        f'--input_file path is not a regular file: "{input_path}". '
+                        f'Please provide a valid path to an aligned CSV file.'
+                    )
+                    input_path = None
+                else:
+                    dummy_record.source_file = str(input_path)
+            else:
+                input_dir = Path(args.input_dir)
+                if not input_dir.is_dir():
+                    logger.error(
+                        f'--input_dir path does not exist or is not a directory: "{input_dir}". '
+                        f'Please provide a valid directory path.'
+                    )
+                else:
+                    csv_files = list(input_dir.glob('*.csv'))
+                    if len(csv_files) == 0:
+                        logger.error(
+                            f'No CSV files found in directory: "{input_dir}". '
+                            f'Please ensure an aligned CSV file is present.'
+                        )
+                    elif len(csv_files) > 1:
+                        logger.error(
+                            f'Expected exactly one CSV file in "{input_dir}", '
+                            f'but found {len(csv_files)}: {", ".join(f.name for f in csv_files)}. '
+                            f'Please use --input_file and point to the specific CSV file you want to process, '
+                            f'for example: --input_file {csv_files[0]}'
+                        )
+                    else:
+                        input_path = csv_files[0]
+                        dummy_record.source_file = str(input_path)
+                        logger.info(f'Found CSV file in directory: "{input_path}"')
         finally:
             logger.removeHandler(handler)
+
+        if input_path is None:
+            dummy_record.counts_ran = False
+        else:
+            dummy_record.source_file = str(input_path)
+            dummy_record.alignment_output = input_path
+            dummy_record.alignment_ok = True
+
+        # Read and validate the aligned CSV format before any further processing
+        if dummy_record.counts_ran:
+            schema_fields: dict = main_cfg.get_value('Schema/fields') or {}
+            aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
+            measurement_cols = [v for k, v in schema_fields.items() if k != 'aliquot_id']
+            required_cols = [aliquot_col] + measurement_cols
+
+            df = None
+            handler = CapturingLogHandler(dummy_record)
+            logger.addHandler(handler)
+            try:
+                try:
+                    df = pd.read_csv(input_path)
+                except Exception:
+                    logger.error(
+                        f'Failed to read CSV "{input_path}". '
+                        f'Please verify the file is a valid CSV in the aligned format.\n'
+                        + traceback.format_exc()
+                    )
+                    dummy_record.counts_ran = False
+
+                if df is not None:
+                    # Validate that all required schema columns are present
+                    missing_cols = [c for c in required_cols if c not in df.columns]
+                    if missing_cols:
+                        logger.error(
+                            f'Aligned file format validation failed for "{input_path.name}": '
+                            f'missing required column(s): {missing_cols}. '
+                            f'Found columns: {list(df.columns)}. '
+                            f'Please ensure the file was produced by the alignment step and matches '
+                            f'the Schema/fields defined in main_config.yaml.'
+                        )
+                        dummy_record.counts_ran = False
+                    else:
+                        logger.info(
+                            f'Aligned file format validated: all required columns present in "{input_path.name}".'
+                        )
+                        if aliquot_col in df.columns:
+                            dummy_record.aliquots = df[aliquot_col].astype(str).tolist()
+                            dummy_record.alignment_aliquot_count = len(dummy_record.aliquots)
+            finally:
+                logger.removeHandler(handler)
+
+        # DB validation — same rules as the alignment step (only if format check passed)
+        if dummy_record.counts_ran:
+            handler = CapturingLogHandler(dummy_record)
+            logger.addHandler(handler)
+            try:
+                if main_cfg.get_value('Alignment/validate_aliquots_against_db') and dummy_record.aliquots:
+                    allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
+                    logger.info(f'Validating {len(dummy_record.aliquots)} aliquot(s) against DB.')
+                    from alignment.aliquot_db_validator import validate_aliquots
+                    ok, program_groups, val_errors = validate_aliquots(
+                        dummy_record.aliquots, main_cfg, logger, allow_multiple_programs=allow_multiple
+                    )
+                    dummy_record.db_validation_ok = ok
+                    dummy_record.program_groups = program_groups or {}
+                    dummy_record.program_code = (
+                        next(iter(program_groups)) if program_groups and len(program_groups) == 1 else None
+                    )
+                    for err in val_errors:
+                        logger.error(err)
+                    if not ok:
+                        logger.error(
+                            f'Aliquot DB validation failed for "{input_path.name}". '
+                            f'All aliquots must pass DB validation for Counts processing to proceed — '
+                            f'processing will be aborted.'
+                        )
+                        dummy_record.counts_ran = False
+            finally:
+                logger.removeHandler(handler)
 
         if dummy_record.counts_ran:
             run_counts(logger, file_records=file_records)

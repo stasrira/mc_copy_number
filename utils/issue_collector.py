@@ -16,6 +16,8 @@ class FileRecord:
         self.program_code = None              # _program_code when all aliquots share one program
         self.program_groups = {}             # {program_code: [aliquot_id, ...]} from DB validation
         self.counts_outputs = []             # list of (program_code, Path) for each written counts file
+        self.launch_param = None             # CLI parameter name used to start standalone run
+        self.launch_value = None             # CLI parameter value used to start standalone run
         self.aliquots = []                    # list of aliquot ID strings (populated after alignment)
         self.alignment_aliquot_count = 0      # number of aliquots from the alignment step
         self.counts_aliquot_count = 0         # number of aliquots from the counts step

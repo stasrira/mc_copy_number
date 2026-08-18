@@ -1,3 +1,7 @@
+{% if process.launch_param %}
+<b>Launch parameter:</b> {{process.launch_param}} {{process.launch_value}}
+<br/>
+{% endif %}
 <b>Source file:</b> {{process.source_file}}
 <br/><b>Provider:</b> {{process.provider_name}}
 <br/>
@@ -63,7 +67,7 @@
 <br/><span style="color:red"><b>Errors:</b></span>
 <ul>
 {% for error in process.errors %}
-    <li><span style="color:red"><b>{{error}}</b></span></li>
+    <li><span style="color:red">{{error}}</span></li>
 {% endfor %}
 </ul>
 {% endif %}

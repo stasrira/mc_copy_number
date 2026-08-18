@@ -71,6 +71,8 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
                 'program_code':            record.program_code,
                 'program_groups':          record.program_groups,
                 'counts_outputs':          record.counts_outputs,
+                'launch_param':            record.launch_param,
+                'launch_value':            record.launch_value,
                 'counts_output':           str(record.counts_output) if record.counts_output else '',
                 'counts_aliquot_count':    record.counts_aliquot_count,
                 'aliquots':                record.aliquots,

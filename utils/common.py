@@ -4,10 +4,68 @@ import time
 import traceback
 from jinja2 import Environment, FileSystemLoader
 
+from utils.configuration import ConfigData
+from utils.log_utils import setup_logger_common
+import utils.global_const as gc
+
 
 def get_project_root():
     """Returns project root folder."""
     return Path(__file__).parent.parent
+
+
+def load_configs(project_root: Path | None = None) -> tuple[ConfigData, ConfigData]:
+    """Load main and location config files.
+
+    :param project_root: optional project root; auto-detected if omitted.
+    :returns: (main_cfg, loc_cfg) tuple.
+    """
+    if project_root is None:
+        project_root = get_project_root()
+    main_cfg = ConfigData(project_root / gc.CONFIG_FILE_MAIN)
+    loc_cfg = ConfigData(project_root / gc.CONFIG_FILE_LOCATION)
+    return main_cfg, loc_cfg
+
+
+def resolve_log_dir(loc_cfg: ConfigData, project_root: Path | None = None) -> str:
+    """Resolve the log directory from location config, defaulting to project_root/logs."""
+    if project_root is None:
+        project_root = get_project_root()
+    log_dir = loc_cfg.get_value('Location/logs') or 'logs'
+    if not os.path.isabs(log_dir):
+        log_dir = str(project_root / log_dir)
+    return log_dir
+
+
+def initialize_run(log_name: str, log_filename_prefix: str):
+    """Load configs, resolve the log directory, and initialize the run logger.
+
+    This is the common bootstrapping routine used by all entry-point scripts.
+
+    :param log_name: logger name passed to setup_logger_common (e.g. gc.MAIN_LOG_NAME).
+    :param log_filename_prefix: prefix for the timestamped log file name.
+    :returns: dict with project_root, main_cfg, loc_cfg, log_dir, log_filename, logger.
+    """
+    project_root = get_project_root()
+    main_cfg, loc_cfg = load_configs(project_root)
+
+    log_dir = resolve_log_dir(loc_cfg, project_root)
+    log_level = main_cfg.get_value('Logging/log_level') or 'INFO'
+    mirror_to_stdout = main_cfg.get_value('Logging/mirror_to_stdout')
+    if mirror_to_stdout is None:
+        mirror_to_stdout = True
+
+    log_filename = f'{log_filename_prefix}_{time.strftime("%Y%m%d_%H%M%S")}.log'
+    log_obj = setup_logger_common(log_name, log_level, log_dir, log_filename, mirror_to_stdout)
+
+    return {
+        'project_root': project_root,
+        'main_cfg': main_cfg,
+        'loc_cfg': loc_cfg,
+        'log_dir': log_dir,
+        'log_filename': log_filename,
+        'logger': log_obj['logger'],
+    }
 
 
 def file_exists(fn):

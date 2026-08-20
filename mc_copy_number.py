@@ -1,33 +1,17 @@
-from utils.configuration import ConfigData
-from utils.log_utils import setup_logger_common
+from utils.common import send_status_email, initialize_run
 import utils.global_const as gc
-from utils.common import get_project_root, clean_email_body, send_status_email
 from dotenv import load_dotenv
-import time
 import os
-import traceback
 
 load_dotenv()
 
 
 def main():
-    project_root = get_project_root()
-
-    main_cfg = ConfigData(project_root / gc.CONFIG_FILE_MAIN)
-    loc_cfg = ConfigData(project_root / gc.CONFIG_FILE_LOCATION)
-
-    log_dir = loc_cfg.get_value('Location/logs') or 'logs'
-    if not os.path.isabs(log_dir):
-        log_dir = str(project_root / log_dir)
-
-    log_level = main_cfg.get_value('Logging/log_level') or 'INFO'
-    mirror_to_stdout = main_cfg.get_value('Logging/mirror_to_stdout')
-    if mirror_to_stdout is None:
-        mirror_to_stdout = True
-
-    log_filename = 'mc_copy_number_' + time.strftime('%Y%m%d_%H%M%S') + '.log'
-    log_obj = setup_logger_common(gc.MAIN_LOG_NAME, log_level, log_dir, log_filename, mirror_to_stdout)
-    logger = log_obj['logger']
+    run = initialize_run(gc.MAIN_LOG_NAME, 'mc_copy_number')
+    logger = run['logger']
+    main_cfg = run['main_cfg']
+    log_dir = run['log_dir']
+    log_filename = run['log_filename']
 
     logger.info('MC Copy Number Processing started.')
 

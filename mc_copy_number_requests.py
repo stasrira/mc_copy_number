@@ -7,38 +7,24 @@ sub-folder, processes each entry, and sends a status email per request file.
 """
 
 import os
-import time
-import traceback
-from pathlib import Path
 
 from dotenv import load_dotenv
 
 from requests.request_processor import _resolve_requests_dirs, _discover_request_files, process_request_file
-from utils.common import get_project_root, send_request_status_email
-from utils.configuration import ConfigData
-from utils.log_utils import setup_logger_common
+from utils.common import send_request_status_email, initialize_run
 import utils.global_const as gc
 
 load_dotenv()
 
 
 def main():
-    project_root = get_project_root()
-    main_cfg = ConfigData(project_root / gc.CONFIG_FILE_MAIN)
-    loc_cfg = ConfigData(project_root / gc.CONFIG_FILE_LOCATION)
-
-    log_dir = loc_cfg.get_value('Location/logs') or 'logs'
-    if not os.path.isabs(log_dir):
-        log_dir = str(project_root / log_dir)
-
-    log_level = main_cfg.get_value('Logging/log_level') or 'INFO'
-    mirror_to_stdout = main_cfg.get_value('Logging/mirror_to_stdout')
-    if mirror_to_stdout is None:
-        mirror_to_stdout = True
-
-    log_filename = 'requests_' + time.strftime('%Y%m%d_%H%M%S') + '.log'
-    log_obj = setup_logger_common(gc.REQUEST_LOG_NAME, log_level, log_dir, log_filename, mirror_to_stdout)
-    logger = log_obj['logger']
+    run = initialize_run(gc.REQUEST_LOG_NAME, 'requests')
+    logger = run['logger']
+    main_cfg = run['main_cfg']
+    loc_cfg = run['loc_cfg']
+    log_dir = run['log_dir']
+    log_filename = run['log_filename']
+    project_root = run['project_root']
 
     logger.info('=== MC Copy Number Requests processing started ===')
 

@@ -13,26 +13,18 @@ standalone with --input_file/--input_dir pointing to an alignment CSV in raw_dat
 
 import argparse
 import os
-import time
 import traceback
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
 
-from utils.common import get_project_root, send_status_email
+from utils.common import get_project_root, send_status_email, load_configs, initialize_run
 from utils.configuration import ConfigData
-from utils.log_utils import setup_logger_common
 from utils.issue_collector import FileRecord, CapturingLogHandler
 import utils.global_const as gc
 
 load_dotenv()
-
-
-def _load_configs(project_root: Path):
-    main_cfg = ConfigData(project_root / gc.CONFIG_FILE_MAIN)
-    loc_cfg = ConfigData(project_root / gc.CONFIG_FILE_LOCATION)
-    return main_cfg, loc_cfg
 
 
 def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: Path, logger) -> bool:
@@ -212,7 +204,7 @@ def run_counts(logger, file_records: list = None, main_cfg: ConfigData = None, l
 
     project_root = get_project_root()
     if main_cfg is None or loc_cfg is None:
-        main_cfg, loc_cfg = _load_configs(project_root)
+        main_cfg, loc_cfg = load_configs(project_root)
 
     studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
     if not studies_dir:
@@ -420,21 +412,12 @@ def main():
     )
     args = parser.parse_args()
 
-    project_root = get_project_root()
-    main_cfg, loc_cfg = _load_configs(project_root)
-
-    log_dir = loc_cfg.get_value('Location/logs') or 'logs'
-    if not os.path.isabs(log_dir):
-        log_dir = str(project_root / log_dir)
-
-    log_level = main_cfg.get_value('Logging/log_level') or 'INFO'
-    mirror_to_stdout = main_cfg.get_value('Logging/mirror_to_stdout')
-    if mirror_to_stdout is None:
-        mirror_to_stdout = True
-
-    log_filename = 'counts_' + time.strftime('%Y%m%d_%H%M%S') + '.log'
-    log_obj = setup_logger_common(gc.COUNTS_LOG_NAME, log_level, log_dir, log_filename, mirror_to_stdout)
-    logger = log_obj['logger']
+    run = initialize_run(gc.COUNTS_LOG_NAME, 'counts')
+    logger = run['logger']
+    main_cfg = run['main_cfg']
+    loc_cfg = run['loc_cfg']
+    log_dir = run['log_dir']
+    log_filename = run['log_filename']
 
     logger.info('=== MC Copy Number Counts started (standalone) ===')
     try:

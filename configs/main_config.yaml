@@ -38,6 +38,16 @@ Alligned_file_schema:
     mtdna_mean: mtDNA_copy_num_mean
     mtdna_se: mtDNA_copy_num_SE
 
+# Settings applied when writing CSV output files (raw_data alignment output and processed_data
+# counts output).
+Csv_output:
+    # When True (default), a CSV file is saved with a UTF-8 BOM if it contains non-ASCII
+    # characters (e.g. an accented aliquot ID), so the value displays correctly when the file
+    # is opened directly in Excel. Files with only plain ASCII content are unaffected either way.
+    # Set to False to always write plain UTF-8 (no BOM) — e.g. if downstream tooling (such as
+    # base R's read.csv() without fileEncoding='UTF-8-BOM') is not BOM-aware.
+    enable_utf8_bom: True
+
 Alignment:
     # Sub-directory under mitCopyN_studies_dir (location config) that holds provider run folders
     run_folders_dir: runFolders

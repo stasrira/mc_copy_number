@@ -11,7 +11,19 @@ Validation rules:
      by program code for separate Counts output files.
 """
 
+import re
+
 from db.db_connection import MetadataDB
+
+# The stored procedure receives all IDs as a single comma-joined string parameter and splits
+# it internally, so an ID containing a comma would corrupt that list even though the query
+# itself is now parameterized and safe from SQL injection. \w (Unicode letters/digits/'_') plus
+# '.' and '-' covers every aliquot ID format seen in practice (including dotted IDs like
+# "BA.ANFO.S01.ANF010M.M01" and accented names like "Naïve-A4") while still rejecting the
+# comma delimiter itself along with quotes, semicolons and whitespace. Rejecting anything
+# outside this format up front keeps the comma-joined list well-formed and surfaces a clear
+# error instead of a confusing DB failure.
+_ALIQUOT_ID_RE = re.compile(r'^[\w.-]+$')
 
 
 def validate_aliquots(
@@ -44,16 +56,23 @@ def validate_aliquots(
         )
         return False, None, errors
 
+    malformed = [a for a in aliquots if not _ALIQUOT_ID_RE.match(a)]
+    if malformed:
+        errors.append(
+            f'Aliquot validation could not run: {len(malformed)} aliquot ID(s) contain unexpected '
+            f'characters (only letters, digits, ".", "-" and "_" are allowed): {", ".join(malformed)}. '
+            f'Please verify the aliquot ID column in the source file.'
+        )
+        return False, None, errors
+
     aliquots_str = ','.join(aliquots)
 
     db = MetadataDB(main_cfg, logger)
     try:
-        sql = (
-            f"exec dbo.usp_get_aliquot_dataset_main_ids_only "
-            f"@aliquot_ids = '{aliquots_str}', "
-            f"@include_program_info = 1"
-        )
-        rows, err = db.exec_query(sql)
+        # @aliquot_ids is passed as a bound parameter (not interpolated into the SQL text) so
+        # it is always treated as data by the driver, never as SQL syntax.
+        sql = "exec dbo.usp_get_aliquot_dataset_main_ids_only @aliquot_ids = ?, @include_program_info = 1"
+        rows, err = db.exec_query(sql, params=(aliquots_str,))
 
         if err or rows is None:
             errors.append(

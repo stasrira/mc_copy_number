@@ -61,18 +61,26 @@ class MetadataDB:
     # Public interface
     # ------------------------------------------------------------------
 
-    def exec_query(self, sql: str) -> tuple[list[dict] | None, str]:
+    def exec_query(self, sql: str, params: tuple = None) -> tuple[list[dict] | None, str]:
         """Execute *sql* and return ``(rows, error_string)``.
 
+        :param sql: SQL text. Use ``?`` placeholders for any user/file-derived values instead of
+                    interpolating them into the string, and supply their values via *params* —
+                    this lets the ODBC driver bind them as data, never as SQL syntax.
+        :param params: Positional values for the ``?`` placeholders in *sql*, or ``None`` if *sql*
+                       has none.
         *rows* is a list of dicts (column → value) or ``None`` on failure.
         *error_string* is empty on success.
         """
         if not self._open():
             return None, 'Database connection could not be established.'
-        self.logger.info(f'Executing SQL: {sql}')
+        self.logger.info(f'Executing SQL: {sql}' + (f' | params={params}' if params else ''))
         try:
             cursor = self._conn.cursor()
-            cursor.execute(sql)
+            if params:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql)
             columns = [col[0] for col in cursor.description]
             rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
             return rows, ''

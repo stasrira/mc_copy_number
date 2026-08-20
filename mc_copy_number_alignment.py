@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 from alignment.file_processor import AlignmentFileProcessor
 from providers.provider_factory import create_provider
-from utils.common import get_project_root, send_status_email, load_configs, initialize_run
+from utils.common import get_project_root, send_status_email, load_configs, initialize_run, csv_bom_enabled
 from utils.configuration import ConfigData
 from utils.issue_collector import FileRecord, CapturingLogHandler
 import utils.global_const as gc
@@ -75,6 +75,8 @@ def run_alignment(logger):
     providers_config_dir_rel = main_cfg.get_value('Alignment/providers_config_dir') or gc.CONFIG_DIR_PROVIDERS
     providers_config_dir = project_root / providers_config_dir_rel
 
+    enable_utf8_bom = csv_bom_enabled(main_cfg)
+
     logger.info(f'Run folders base : {run_folders_dir}')
     logger.info(f'Raw data output  : {raw_data_dir}')
     logger.info(f'Providers config : {providers_config_dir}')
@@ -133,7 +135,8 @@ def run_alignment(logger):
             logger.error(f'[{provider_name}] Cannot create provider: {e}')
             continue
 
-        processor = AlignmentFileProcessor(provider, str(raw_data_dir), logger, schema_map=schema_fields)
+        processor = AlignmentFileProcessor(provider, str(raw_data_dir), logger, schema_map=schema_fields,
+                                           enable_utf8_bom=enable_utf8_bom)
 
         for file_path in ready_files:
             record = FileRecord(source_file=str(file_path), provider_name=provider_name)
@@ -149,7 +152,7 @@ def run_alignment(logger):
                     aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
                     try:
                         import pandas as pd
-                        df = pd.read_csv(out_path)
+                        df = pd.read_csv(out_path, encoding='utf-8-sig')
                         if aliquot_col in df.columns:
                             record.aliquots = df[aliquot_col].astype(str).tolist()
                             record.alignment_aliquot_count = len(record.aliquots)

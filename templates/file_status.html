@@ -25,7 +25,7 @@
     <span style="color:green"><b>OK</b></span>
     <br/>Aliquots processed: <b>{{process.alignment_aliquot_count}}</b>
     {% if process.alignment_output %}
-    <br/>Aligned CSV: {{process.alignment_output}}
+    <br/>Aligned CSV: {{process.alignment_output}}{% if process.alignment_output in process.bom_applied_paths %} <span style="color:orange"><b>*</b></span>{% endif %}
     {% endif %}
 {% else %}
     <span style="color:red"><b>FAILED</b></span>
@@ -68,10 +68,10 @@
     {% if process.counts_outputs %}
     <br/>Output files by program:
     {% for code, path in process.counts_outputs %}
-    <br/>&nbsp;&nbsp;<b>{{code}}</b>: {{path}}
+    <br/>&nbsp;&nbsp;<b>{{code}}</b>: {{path}}{% if path|string in process.bom_applied_paths %} <span style="color:orange"><b>*</b></span>{% endif %}
     {% endfor %}
     {% elif process.counts_output %}
-    <br/>Counts CSV: {{process.counts_output}}
+    <br/>Counts CSV: {{process.counts_output}}{% if process.counts_output in process.bom_applied_paths %} <span style="color:orange"><b>*</b></span>{% endif %}
     {% endif %}
 {% else %}
     <span style="color:red"><b>FAILED</b></span>

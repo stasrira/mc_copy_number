@@ -22,6 +22,9 @@ import utils.global_const as gc
 
 load_dotenv()
 
+# Process identification shown in the status email subject and header.
+PROCESS_LABEL = 'Alignment'
+
 
 def _discover_providers(providers_config_dir: Path, logger):
     """Scan providers_config_dir for sub-folders containing a provider_config.yaml.
@@ -210,7 +213,8 @@ def main():
         logger.critical('Unexpected error during alignment:\n' + traceback.format_exc())
 
     send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
-                      subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - Alignment')
+                      subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - {PROCESS_LABEL}',
+                      process_label=PROCESS_LABEL)
     logger.info('=== MC Copy Number Alignment finished ===')
 
 

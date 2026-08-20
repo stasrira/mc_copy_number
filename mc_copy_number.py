@@ -5,6 +5,9 @@ import os
 
 load_dotenv()
 
+# Process identification shown in the status email subject and header.
+PROCESS_LABEL = 'Alignment/Counts'
+
 
 def main():
     run = initialize_run(gc.MAIN_LOG_NAME, 'mc_copy_number')
@@ -58,7 +61,11 @@ def main():
         run_counts(logger, file_records)
 
     # Step 3 - Send status email
-    send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg)
+    send_status_email(
+        logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
+        subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - {PROCESS_LABEL}',
+        process_label=PROCESS_LABEL,
+    )
 
     logger.info('MC Copy Number Processing completed.')
 

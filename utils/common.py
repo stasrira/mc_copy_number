@@ -98,7 +98,8 @@ def clean_email_body(email_body: str) -> str:
     return email_body.replace('\r', '').replace('\n', '')
 
 
-def send_status_email(logger, file_records, log_filename, main_cfg, subject_prefix: str = None):
+def send_status_email(logger, file_records, log_filename, main_cfg, subject_prefix: str = None,
+                       process_label: str = None):
     """Build and send a processing status email.
 
     :param logger: application logger
@@ -106,6 +107,8 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
     :param log_filename: log filename to include in the email body
     :param main_cfg: ConfigData instance for the main config
     :param subject_prefix: overrides Email/email_subject_prefix when provided
+    :param process_label: entry-point process identification (e.g. "Alignment/Counts"),
+                          shown in the email header
     """
     try:
         from utils.send_email import send_email
@@ -151,6 +154,7 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
             'files_with_errors':  files_with_errors,
             'files_with_warnings': files_with_warnings,
             'file_sections':      file_sections,
+            'process_label':      process_label,
         }
         email_body = populate_email_template('pipeline_status.html', final_feeder, templates_dir)
         email_body = clean_email_body(email_body)
@@ -177,7 +181,8 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
         logger.error('Failed to send status email:\n' + traceback.format_exc())
 
 
-def send_request_status_email(logger, request_record, log_filename, main_cfg, subject_prefix: str = None):
+def send_request_status_email(logger, request_record, log_filename, main_cfg, subject_prefix: str = None,
+                               process_label: str = None):
     """Build and send a status email for a single request file.
 
     :param logger: application logger
@@ -185,6 +190,8 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
     :param log_filename: log filename to include in the email body
     :param main_cfg: ConfigData instance for the main config
     :param subject_prefix: overrides Email/email_subject_prefix when provided
+    :param process_label: entry-point process identification (e.g. "Request/Counts"),
+                          shown in the email header
     """
     try:
         from utils.send_email import send_email
@@ -238,6 +245,7 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
             'entries':                  request_record.entries,
             'entry_sections':           entry_sections,
             'total_entries':            len(request_record.entries),
+            'process_label':            process_label,
         }
         email_body = populate_email_template('request_status.html', final_feeder, templates_dir)
         email_body = clean_email_body(email_body)

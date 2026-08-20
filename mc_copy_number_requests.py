@@ -16,6 +16,9 @@ import utils.global_const as gc
 
 load_dotenv()
 
+# Process identification shown in the status email subject and header.
+PROCESS_LABEL = 'Request/Counts'
+
 
 def main():
     run = initialize_run(gc.REQUEST_LOG_NAME, 'requests')
@@ -51,7 +54,7 @@ def main():
 
         # Send one status email per request file
         subject_prefix = (
-            f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - Requests'
+            f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - {PROCESS_LABEL}'
         )
         send_request_status_email(
             logger,
@@ -59,6 +62,7 @@ def main():
             os.path.join(log_dir, log_filename),
             main_cfg,
             subject_prefix=subject_prefix,
+            process_label=PROCESS_LABEL,
         )
 
     logger.info('=== MC Copy Number Requests processing finished ===')

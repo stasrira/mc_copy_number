@@ -26,6 +26,9 @@ import utils.global_const as gc
 
 load_dotenv()
 
+# Process identification shown in the status email subject and header.
+PROCESS_LABEL = 'Counts'
+
 
 def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: Path, logger) -> bool:
     """Check that all required canonical columns are present in the DataFrame."""
@@ -507,7 +510,8 @@ def main():
 
     send_status_email(
         logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
-        subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - Counts'
+        subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - {PROCESS_LABEL}',
+        process_label=PROCESS_LABEL,
     )
     logger.info('=== MC Copy Number Counts finished ===')
 

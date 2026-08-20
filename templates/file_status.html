@@ -1,7 +1,9 @@
 {% if process.launch_param %}
 <br/>
 <b>Launch parameter:</b> {{process.launch_param}}
+{% if process.raw_data_source is not defined %}
 <br/><b>Launch value:</b> {{process.launch_value}}
+{% endif %}
 {% endif %}
 {% if process.row_number is defined %}
 <br/>
@@ -9,11 +11,11 @@
 <br/>
 {% endif %}
 {% if process.raw_data_source is defined %}
-<b>Raw data source:</b> {{process.raw_data_source}}
+<b>Request Raw data source:</b> {{process.raw_data_source}}
 <br/>
 {% endif %}
 <br/>
-<b>Source file:</b> {{process.source_file}}
+<b>Identified Source file:</b> {{process.source_file}}
 <br/><b>Provider:</b> {{process.provider_name}}
 <br/>
 <br/><b>File Alignment:</b>

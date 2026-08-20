@@ -1,0 +1,42 @@
+<b>Mitochondrial Copy Number Processing{% if process.process_label %} - {{process.process_label}}{% endif %} - Status Report</b>
+<br/>
+<br/>
+<b>Request file:</b> {{process.request_file}}
+<br/><b>Status:</b>
+{% if process.processed_successfully %}
+    <span style="color:green"><b>Completed successfully</b></span>
+{% elif process.has_errors %}
+    <span style="color:red"><b>Completed with errors</b></span>
+{% elif process.has_warnings %}
+    <span style="color:orange"><b>Completed with warnings</b></span>
+{% else %}
+    <span style="color:gray"><b>Completed</b></span>
+{% endif %}
+<br/><b>Entries processed:</b> {{process.total_entries}}
+{% if process.errors %}
+<br/>
+<br/><span style="color:red"><b>Request-level errors:</b></span>
+<ul>
+{% for error in process.errors %}
+    <li><span style="color:red"><b>{{error}}</b></span></li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if process.warnings %}
+<br/>
+<br/><span style="color:orange"><b>Request-level warnings:</b></span>
+<ul>
+{% for warning in process.warnings %}
+    <li><span style="color:orange">{{warning}}</span></li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if process.entry_sections %}
+<br/>
+<br/><b>Request entries:</b>
+{% for section in process.entry_sections %}
+<br/>
+<br/>----------------------------------------------------
+{{section}}
+{% endfor %}
+{% endif %}

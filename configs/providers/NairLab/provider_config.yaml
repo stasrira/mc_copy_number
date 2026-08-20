@@ -21,7 +21,7 @@ extraction:
     data_end_anchor_field: aliquot_id
 
     # Column mapping: schema_key -> extraction details
-    # schema_key: stable identifier matching a key under Schema/fields in main_config.yaml.
+    # schema_key: stable identifier matching a key under Alligned_file_schema/fields in main_config.yaml.
     #   The actual output column name is resolved from the schema at runtime.
     # column_index: 1-based Excel column number (A=1, B=2, ..., K=11, V=22, W=23)
     # source_header: expected header text in the file (used for validation; warning if mismatch)

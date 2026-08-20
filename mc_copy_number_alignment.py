@@ -8,35 +8,22 @@ to the standardized format, and writes the output CSV files to the raw_data
 destination directory.
 """
 
-import glob as glob_module
 import os
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from alignment.file_processor import AlignmentFileProcessor
 from providers.provider_factory import create_provider
-from utils.common import get_project_root, send_status_email
+from utils.common import get_project_root, send_status_email, load_configs, initialize_run
 from utils.configuration import ConfigData
-from utils.log_utils import setup_logger_common
 from utils.issue_collector import FileRecord, CapturingLogHandler
 import utils.global_const as gc
 
 load_dotenv()
 
-
-def _load_configs(project_root: Path):
-    main_cfg = ConfigData(project_root / gc.CONFIG_FILE_MAIN)
-    loc_cfg = ConfigData(project_root / gc.CONFIG_FILE_LOCATION)
-    return main_cfg, loc_cfg
-
-
-def _resolve_log_dir(loc_cfg: ConfigData, project_root: Path) -> str:
-    log_dir = loc_cfg.get_value('Location/logs') or 'logs'
-    if not os.path.isabs(log_dir):
-        log_dir = str(project_root / log_dir)
-    return log_dir
+# Process identification shown in the status email subject and header.
+PROCESS_LABEL = 'Alignment'
 
 
 def _discover_providers(providers_config_dir: Path, logger):
@@ -69,7 +56,7 @@ def _discover_providers(providers_config_dir: Path, logger):
 
 def run_alignment(logger):
     project_root = get_project_root()
-    main_cfg, loc_cfg = _load_configs(project_root)
+    main_cfg, loc_cfg = load_configs(project_root)
 
     # Resolve study root directory
     studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
@@ -93,9 +80,9 @@ def run_alignment(logger):
     logger.info(f'Providers config : {providers_config_dir}')
 
     # Load schema: maps schema_key → canonical column name
-    schema_fields = main_cfg.get_value('Schema/fields') or {}
+    schema_fields = main_cfg.get_value('Alligned_file_schema/fields') or {}
     if not schema_fields:
-        logger.warning('Schema/fields is not defined in main_config.yaml. Columns will not be renamed.')
+        logger.warning('Alligned_file_schema/fields is not defined in main_config.yaml. Columns will not be renamed.')
 
     # Discover all provider configs
     provider_configs = _discover_providers(providers_config_dir, logger)
@@ -170,7 +157,11 @@ def run_alignment(logger):
                         logger.warning(f'[{provider_name}] Could not extract aliquot IDs from "{out_path.name}".')
 
                     # DB validation of aliquot IDs
-                    if main_cfg.get_value('Alignment/validate_aliquots_against_db') and record.aliquots:
+                    run_db_validation = bool(
+                        main_cfg.get_value('Alignment/validate_aliquots_against_db') and record.aliquots
+                    )
+                    record.db_validation_skipped = not run_db_validation
+                    if run_db_validation:
                         allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
                         logger.info(f'[{provider_name}] Validating {len(record.aliquots)} aliquot(s) against DB.')
                         from alignment.aliquot_db_validator import validate_aliquots
@@ -205,18 +196,11 @@ def run_alignment(logger):
 
 
 def main():
-    project_root = get_project_root()
-    main_cfg, loc_cfg = _load_configs(project_root)
-
-    log_dir = _resolve_log_dir(loc_cfg, project_root)
-    log_level = main_cfg.get_value('Logging/log_level') or 'INFO'
-    mirror_to_stdout = main_cfg.get_value('Logging/mirror_to_stdout')
-    if mirror_to_stdout is None:
-        mirror_to_stdout = True
-
-    log_filename = 'alignment_' + time.strftime('%Y%m%d_%H%M%S') + '.log'
-    log_obj = setup_logger_common(gc.ALIGNMENT_LOG_NAME, log_level, log_dir, log_filename, mirror_to_stdout)
-    logger = log_obj['logger']
+    run = initialize_run(gc.ALIGNMENT_LOG_NAME, 'alignment')
+    logger = run['logger']
+    main_cfg = run['main_cfg']
+    log_dir = run['log_dir']
+    log_filename = run['log_filename']
 
     logger.info('=== MC Copy Number Alignment started ===')
     file_records = []
@@ -229,7 +213,8 @@ def main():
         logger.critical('Unexpected error during alignment:\n' + traceback.format_exc())
 
     send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
-                      subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - Alignment')
+                      subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - {PROCESS_LABEL}',
+                      process_label=PROCESS_LABEL)
     logger.info('=== MC Copy Number Alignment finished ===')
 
 

@@ -65,6 +65,17 @@ Alignment:
     # a separate output file per program, each placed in its own program-named sub-folder.
     allow_multiple_programs: True
 
+Requests:
+    # Optional Excel sheet name to read from request files. If omitted or blank, the first
+    # available sheet is used. If the configured sheet is not found, processing falls back to
+    # the first sheet and reports a warning.
+    request_sheet_name: ''
+    # Sub-folder names under Location/requests_dir used for the request file lifecycle.
+    ready_subfolder: ready
+    processing_temp_subfolder: processing_temp
+    processed_subfolder: processed
+    reprocess_subfolder: work
+
 Counts:
     # Sub-directory under mitCopyN_studies_dir where transposed count table files are written
     processed_data_dir: processed_data

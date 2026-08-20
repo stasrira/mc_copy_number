@@ -1,7 +1,18 @@
 {% if process.launch_param %}
-<b>Launch parameter:</b> {{process.launch_param}} {{process.launch_value}}
+<br/>
+<b>Launch parameter:</b> {{process.launch_param}}
+<br/><b>Launch value:</b> {{process.launch_value}}
+{% endif %}
+{% if process.row_number is defined %}
+<br/>
+<b>Request entry row:</b> {{process.row_number}}
 <br/>
 {% endif %}
+{% if process.raw_data_source is defined %}
+<b>Raw data source:</b> {{process.raw_data_source}}
+<br/>
+{% endif %}
+<br/>
 <b>Source file:</b> {{process.source_file}}
 <br/><b>Provider:</b> {{process.provider_name}}
 <br/>
@@ -17,21 +28,30 @@
 {% else %}
     <span style="color:red"><b>FAILED</b></span>
 {% endif %}
-{% if process.alignment_ran and process.alignment_ok %}
+{% if process.alignment_ok %}
 <br/>
 <br/><b>DB Aliquot Validation:</b>
-{% if process.db_validation_ok %}
+{% if process.db_validation_skipped is defined and process.db_validation_skipped %}
+    <span style="color:gray">N/A</span>
+{% elif process.db_validation_ok %}
     <span style="color:green"><b>OK</b></span>
-    {% if process.program_groups|length > 1 %}
-    <br/>Programs ({{process.program_groups|length}}):
-    {% for code, aliquots in process.program_groups.items() %}
-    <br/>&nbsp;&nbsp;{{code}} — {{aliquots|length}} aliquot(s)
-    {% endfor %}
-    {% else %}
-    <br/>Program code: <b>{{process.program_code}}</b>
-    {% endif %}
 {% else %}
     <span style="color:red"><b>FAILED</b></span>
+{% endif %}
+<br/>
+{% if process.program_code_override is defined and process.program_code_override %}
+<br/>Program code provided by request (override): <b>{{process.program_code_override}}</b>
+{% elif process.program_code %}
+<br/>Program code identified from database: <b>{{process.program_code}}</b>
+{% endif %}
+{% if process.skip_aliquot_validation is defined and process.skip_aliquot_validation %}
+<br/>Aliquot validation skipped per request entry.
+{% endif %}
+{% if process.program_groups %}
+<br/>Programs ({{process.program_groups|length}}):
+{% for code, aliquots in process.program_groups.items() %}
+    <br/>&nbsp;&nbsp;{{code}} — {{aliquots|length}} aliquot(s){% if process.program_code_override is defined and process.program_code_override and code == process.program_code_override %} (override from request){% endif %}
+{% endfor %}
 {% endif %}
 {% endif %}
 <br/>
@@ -43,7 +63,7 @@
 {% elif process.counts_ok %}
     <span style="color:green"><b>OK</b></span>
     <br/>Aliquots processed: <b>{{process.counts_aliquot_count}}</b>
-    {% if process.counts_outputs|length > 1 %}
+    {% if process.counts_outputs %}
     <br/>Output files by program:
     {% for code, path in process.counts_outputs %}
     <br/>&nbsp;&nbsp;<b>{{code}}</b>: {{path}}

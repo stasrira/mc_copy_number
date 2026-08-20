@@ -8,6 +8,7 @@ PROVIDER_CONFIG_FILE_NAME = 'provider_config.yaml'
 MAIN_LOG_NAME = 'main_log'
 ALIGNMENT_LOG_NAME = 'alignment_log'
 COUNTS_LOG_NAME = 'counts_log'
+REQUEST_LOG_NAME = 'request_log'
 
 # These are set at runtime from config
 APP_LOG_DIR = ''

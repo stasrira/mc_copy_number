@@ -170,7 +170,11 @@ def run_alignment(logger):
                         logger.warning(f'[{provider_name}] Could not extract aliquot IDs from "{out_path.name}".')
 
                     # DB validation of aliquot IDs
-                    if main_cfg.get_value('Alignment/validate_aliquots_against_db') and record.aliquots:
+                    run_db_validation = bool(
+                        main_cfg.get_value('Alignment/validate_aliquots_against_db') and record.aliquots
+                    )
+                    record.db_validation_skipped = not run_db_validation
+                    if run_db_validation:
                         allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
                         logger.info(f'[{provider_name}] Validating {len(record.aliquots)} aliquot(s) against DB.')
                         from alignment.aliquot_db_validator import validate_aliquots

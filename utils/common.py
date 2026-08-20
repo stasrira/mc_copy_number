@@ -68,6 +68,7 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
                 'counts_ran':              record.counts_ran,
                 'counts_skipped':          record.alignment_output is None,
                 'db_validation_ok':        record.db_validation_ok,
+                'db_validation_skipped':   getattr(record, 'db_validation_skipped', False),
                 'program_code':            record.program_code,
                 'program_groups':          record.program_groups,
                 'counts_outputs':          record.counts_outputs,
@@ -116,3 +117,90 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
 
     except Exception:
         logger.error('Failed to send status email:\n' + traceback.format_exc())
+
+
+def send_request_status_email(logger, request_record, log_filename, main_cfg, subject_prefix: str = None):
+    """Build and send a status email for a single request file.
+
+    :param logger: application logger
+    :param request_record: RequestRecord object
+    :param log_filename: log filename to include in the email body
+    :param main_cfg: ConfigData instance for the main config
+    :param subject_prefix: overrides Email/email_subject_prefix when provided
+    """
+    try:
+        from utils.send_email import send_email
+
+        project_root = get_project_root()
+        templates_dir = project_root / 'templates'
+
+        # Render each entry using the existing file_status.html template
+        entry_sections = []
+        for entry in request_record.entries:
+            template_feeder = {
+                'source_file':             entry.source_file,
+                'provider_name':           entry.provider_name,
+                'alignment_ok':            entry.alignment_ok,
+                'alignment_ran':           entry.alignment_ran,
+                'alignment_output':        str(entry.alignment_output) if entry.alignment_output else '',
+                'alignment_aliquot_count': entry.alignment_aliquot_count,
+                'counts_ok':               entry.counts_ok,
+                'counts_ran':              entry.counts_ran,
+                'counts_skipped':          entry.alignment_output is None,
+                'db_validation_ok':        entry.db_validation_ok,
+                'db_validation_skipped':   getattr(entry, 'db_validation_skipped', False),
+                'program_code':            entry.program_code,
+                'program_groups':          entry.program_groups,
+                'counts_outputs':          entry.counts_outputs,
+                'launch_param':            entry.launch_param,
+                'launch_value':            entry.launch_value,
+                'counts_output':           str(entry.counts_output) if entry.counts_output else '',
+                'counts_aliquot_count':    entry.counts_aliquot_count,
+                'aliquots':                entry.aliquots,
+                'warnings':                entry.warnings,
+                'errors':                  entry.errors,
+                # Request-specific context for the template
+                'raw_data_source':         getattr(entry, 'raw_data_source', ''),
+                'program_code_override':   getattr(entry, 'program_code_override', ''),
+                'skip_aliquot_validation': getattr(entry, 'skip_aliquot_validation', False),
+                'row_number':              getattr(entry, 'row_number', ''),
+            }
+            section_html = populate_email_template('file_status.html', template_feeder, templates_dir)
+            entry_sections.append(section_html)
+
+        final_feeder = {
+            'run_time':                 time.strftime('%Y-%m-%d %H:%M:%S'),
+            'log_file':                 log_filename,
+            'request_file':             request_record.request_file,
+            'processed_successfully':   request_record.processed_successfully,
+            'has_errors':               request_record.has_errors,
+            'has_warnings':             request_record.has_warnings,
+            'errors':                   request_record.errors,
+            'warnings':                 request_record.warnings,
+            'entries':                  request_record.entries,
+            'entry_sections':           entry_sections,
+            'total_entries':            len(request_record.entries),
+        }
+        email_body = populate_email_template('request_status.html', final_feeder, templates_dir)
+        email_body = clean_email_body(email_body)
+
+        prefix = subject_prefix or main_cfg.get_value('Email/email_subject_prefix') or 'MC Copy Number Processing'
+        if request_record.has_errors:
+            subject = f'{prefix} - Request ERRORS - "{Path(request_record.request_file).name}"'
+        elif request_record.has_warnings:
+            subject = f'{prefix} - Request warnings - "{Path(request_record.request_file).name}"'
+        elif len(request_record.entries) == 0:
+            subject = f'{prefix} - Request no entries - "{Path(request_record.request_file).name}"'
+        else:
+            subject = f'{prefix} - Request completed successfully - "{Path(request_record.request_file).name}"'
+
+        if main_cfg.get_value('Email/send_emails'):
+            email_from = main_cfg.get_value('Email/default_from_email')
+            emails_to = main_cfg.get_value('Email/sent_to_emails')
+            send_email(emails_to, subject, email_body, email_from=email_from)
+            logger.info(f'Request status email sent to: {emails_to}')
+        else:
+            logger.info('Request status email sending is disabled in config.')
+
+    except Exception:
+        logger.error('Failed to send request status email:\n' + traceback.format_exc())

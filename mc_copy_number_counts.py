@@ -71,7 +71,7 @@ def validate_aligned_csv(csv_path: Path, schema_fields: dict, logger) -> tuple[p
             f'missing required column(s): {missing_cols}. '
             f'Found columns: {list(df.columns)}. '
             f'Please ensure the file was produced by the alignment step and matches '
-            f'the Schema/fields defined in main_config.yaml.'
+            f'the Alligned_file_schema/fields defined in main_config.yaml.'
         )
         logger.error(err)
         return None, err
@@ -218,9 +218,9 @@ def run_counts(logger, file_records: list = None, main_cfg: ConfigData = None, l
     processed_data_dir = studies_dir / (main_cfg.get_value('Counts/processed_data_dir') or 'processed_data')
     output_path_depth = int(main_cfg.get_value('Counts/output_path_depth') or 1)
 
-    schema_fields: dict = main_cfg.get_value('Schema/fields') or {}
+    schema_fields: dict = main_cfg.get_value('Alligned_file_schema/fields') or {}
     if not schema_fields:
-        logger.error('Schema/fields is not defined in main_config.yaml. Cannot validate columns. Aborting.')
+        logger.error('Alligned_file_schema/fields is not defined in main_config.yaml. Cannot validate columns. Aborting.')
         return
 
     logger.info(f'Counts output dir   : {processed_data_dir}')
@@ -334,7 +334,7 @@ def process_counts_input(
     logger.addHandler(handler)
     try:
         # Validate aligned CSV format and extract aliquots
-        schema_fields: dict = main_cfg.get_value('Schema/fields') or {}
+        schema_fields: dict = main_cfg.get_value('Alligned_file_schema/fields') or {}
         df, fmt_err = validate_aligned_csv(input_path, schema_fields, logger)
         if fmt_err or df is None:
             record.counts_ran = False

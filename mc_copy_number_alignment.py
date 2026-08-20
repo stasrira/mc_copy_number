@@ -80,9 +80,9 @@ def run_alignment(logger):
     logger.info(f'Providers config : {providers_config_dir}')
 
     # Load schema: maps schema_key → canonical column name
-    schema_fields = main_cfg.get_value('Schema/fields') or {}
+    schema_fields = main_cfg.get_value('Alligned_file_schema/fields') or {}
     if not schema_fields:
-        logger.warning('Schema/fields is not defined in main_config.yaml. Columns will not be renamed.')
+        logger.warning('Alligned_file_schema/fields is not defined in main_config.yaml. Columns will not be renamed.')
 
     # Discover all provider configs
     provider_configs = _discover_providers(providers_config_dir, logger)

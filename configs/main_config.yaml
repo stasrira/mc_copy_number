@@ -32,7 +32,7 @@ Email:
 # Provider configs reference fields by their schema key (the left-hand side).
 # To rename an output column, change only the right-hand value here —
 # no provider config update is needed.
-Schema:
+Alligned_file_schema:
   fields:
     aliquot_id: aliquot_id
     mtdna_mean: mtDNA_copy_num_mean

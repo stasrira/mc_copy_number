@@ -57,7 +57,7 @@ venv.bak/
 /temp
 
 # Location-specific config files (contain machine-specific paths)
-**/location_config.yaml
+configs/location_config.yaml
 
 # Data examples folder (excluded from version control)
 /data_examples

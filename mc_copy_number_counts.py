@@ -13,6 +13,7 @@ standalone with --input_file/--input_dir pointing to an alignment CSV in raw_dat
 
 import argparse
 import os
+import re
 import traceback
 from pathlib import Path
 
@@ -31,6 +32,12 @@ load_dotenv()
 
 # Process identification shown in the status email subject and header.
 PROCESS_LABEL = 'Counts'
+
+# A Program_code override comes directly from a lab-submitted request Excel column and is used
+# as a filesystem path component (processed_data_dir/<program_code>/...). Restrict to a safe
+# charset and require the value to start/end with an alphanumeric or underscore character, so a
+# pure-dot component like ".." (a path-traversal component) can never validate.
+_PROGRAM_CODE_RE = re.compile(r'^[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?$')
 
 
 def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: Path, logger) -> bool:
@@ -357,6 +364,15 @@ def process_counts_input(
     handler = CapturingLogHandler(record)
     logger.addHandler(handler)
     try:
+        if program_code_override and not _PROGRAM_CODE_RE.match(program_code_override):
+            logger.error(
+                f'Invalid Program_code override "{program_code_override}": only letters, digits, '
+                f'".", "-" and "_" are allowed, and the value cannot start or end with "." or "-" '
+                f'(this value is used as an output folder name). Please correct it and resubmit.'
+            )
+            record.counts_ran = False
+            return record
+
         # Validate aligned CSV format and extract aliquots
         schema_fields: dict = main_cfg.get_value('Alligned_file_schema/fields') or {}
         df, fmt_err = validate_aligned_csv(input_path, schema_fields, logger)

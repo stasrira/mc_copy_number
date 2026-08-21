@@ -176,8 +176,28 @@ def _parse_request_file(file_path: Path, main_cfg: ConfigData, logger) -> tuple[
     return entries, None
 
 
-def _resolve_raw_data_source(raw_value: str, logger) -> tuple[Path | None, str | None, str | None]:
-    """Resolve a Raw_data_source value to a single CSV path.
+def _resolve_allowed_raw_data_root(loc_cfg: ConfigData, main_cfg: ConfigData) -> Path | None:
+    """Return the raw_data directory that Raw_data_source values must resolve within.
+
+    This is the same directory the alignment step writes its output CSVs to — Raw_data_source is
+    documented as pointing to one of those files. Returns None if the studies directory is not
+    configured.
+    """
+    studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
+    if not studies_dir:
+        return None
+    return Path(studies_dir) / (main_cfg.get_value('Alignment/raw_data_dir') or 'raw_data')
+
+
+def _resolve_raw_data_source(
+    raw_value: str, allowed_root: Path, logger
+) -> tuple[Path | None, str | None, str | None]:
+    """Resolve a Raw_data_source value to a single CSV path within *allowed_root*.
+
+    Raw_data_source is a value from a lab-submitted request Excel file, i.e. untrusted input from
+    outside the trust boundary of this application. It is resolved relative to *allowed_root* when
+    not absolute, and rejected outright if it resolves outside *allowed_root* — otherwise a
+    submitter could point this at an arbitrary path on the filesystem (e.g. "../../../etc").
 
     :returns: (csv_path, launch_param, error_message)
         csv_path is None on error; launch_param is '--input_file' or '--input_dir'.
@@ -186,16 +206,31 @@ def _resolve_raw_data_source(raw_value: str, logger) -> tuple[Path | None, str |
         return None, None, 'Raw_data_source value is empty.'
 
     source_path = Path(raw_value)
-    if not source_path.exists():
+    if not source_path.is_absolute():
+        source_path = allowed_root / source_path
+
+    try:
+        resolved = source_path.resolve()
+        resolved_root = allowed_root.resolve()
+    except (OSError, RuntimeError) as e:
+        return None, None, f'Failed to resolve Raw_data_source path "{raw_value}": {e}'
+
+    if not resolved.is_relative_to(resolved_root):
+        return None, None, (
+            f'Raw_data_source "{raw_value}" resolves outside the allowed raw_data directory '
+            f'("{allowed_root}"). Please submit a path within raw_data.'
+        )
+
+    if not resolved.exists():
         return None, None, f'Raw_data_source path does not exist: "{raw_value}".'
 
-    if source_path.is_file():
-        if source_path.suffix.lower() != '.csv':
+    if resolved.is_file():
+        if resolved.suffix.lower() != '.csv':
             return None, None, f'Raw_data_source file is not a CSV: "{raw_value}".'
-        return source_path, '--input_file', None
+        return resolved, '--input_file', None
 
-    if source_path.is_dir():
-        csv_files = sorted(f for f in source_path.glob('*.csv') if not f.name.startswith('~$'))
+    if resolved.is_dir():
+        csv_files = sorted(f for f in resolved.glob('*.csv') if not f.name.startswith('~$'))
         if len(csv_files) == 0:
             return None, None, f'No CSV files found in Raw_data_source directory: "{raw_value}".'
         if len(csv_files) > 1:
@@ -225,8 +260,14 @@ def _process_request_entry(
 
     logger.info(f'Processing request entry {row_number}: Raw_data_source="{raw_value}".')
 
-    # Resolve Raw_data_source to a CSV path
-    csv_path, launch_param, err = _resolve_raw_data_source(raw_value, logger)
+    # Resolve Raw_data_source to a CSV path, constrained to the configured raw_data directory
+    allowed_root = _resolve_allowed_raw_data_root(loc_cfg, main_cfg)
+    if allowed_root is None:
+        csv_path, launch_param, err = (
+            None, '--input_dir', 'Location/mitCopyN_studies_dir is not set in location_config.yaml.'
+        )
+    else:
+        csv_path, launch_param, err = _resolve_raw_data_source(raw_value, allowed_root, logger)
     if err:
         # Build a minimal record so the error is captured and emailed
         record = RequestEntryRecord(

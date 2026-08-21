@@ -51,7 +51,7 @@ class AlignmentFileProcessor:
             n += 1
 
     def process_file(self, file_path: Path, temp_processing_dir: Path, processed_dir: Path,
-                     reprocess_dir: Path) -> bool:
+                     reprocess_dir: Path) -> Path | None:
         """Process a single file end-to-end.
 
         :param file_path: Full path to the file in the ready/ folder
@@ -74,19 +74,19 @@ class AlignmentFileProcessor:
             self.logger.warning(
                 f'[{self.provider.name}] File "{file_name}" was already claimed by another process. Skipping.'
             )
-            return False
+            return None
         except PermissionError:
             self.logger.warning(
                 f'[{self.provider.name}] File "{file_name}" is locked by another process (e.g. open in Excel) '
                 f'and cannot be moved. The file remains in the ready folder and will be attempted again on the next run.'
             )
-            return False
+            return None
         except Exception:
             self.logger.error(
                 f'[{self.provider.name}] Failed to move "{file_name}" to temp_processing.\n'
                 + traceback.format_exc()
             )
-            return False
+            return None
 
         try:
             # --- Step 2: extract ---

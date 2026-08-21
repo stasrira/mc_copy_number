@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import time
 import traceback
+import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
 from utils.configuration import ConfigData
@@ -12,6 +13,51 @@ import utils.global_const as gc
 def get_project_root():
     """Returns project root folder."""
     return Path(__file__).parent.parent
+
+
+def csv_bom_enabled(main_cfg: ConfigData) -> bool:
+    """Return whether the UTF-8 BOM feature (``Csv_output/enable_utf8_bom``) is enabled.
+
+    Defaults to ``True`` (enabled) when the key is not present in main_config.yaml.
+    """
+    val = main_cfg.get_value('Csv_output/enable_utf8_bom')
+    return True if val is None else bool(val)
+
+
+def resolve_csv_write_encoding(df: pd.DataFrame, enable_utf8_bom: bool = True) -> tuple[str, str | None]:
+    """Decide the encoding to use when writing *df* to CSV.
+
+    :param enable_utf8_bom: When False (the ``Csv_output/enable_utf8_bom`` config flag is off),
+                            always returns plain ``'utf-8'`` — see :func:`csv_bom_enabled`.
+
+    Returns ``(encoding, example)``:
+
+    * *encoding* is ``'utf-8-sig'`` (adds a UTF-8 BOM) only when *enable_utf8_bom* is True and the
+      data actually contains non-ASCII characters (in column names, the index, or any string
+      cell), so Excel renders those correctly instead of misreading the file as the system
+      codepage. Plain ``'utf-8'`` (no BOM) is returned otherwise — the BOM is unnecessary for
+      pure-ASCII data and can otherwise trip up tools that aren't BOM-aware, e.g. base R's
+      ``read.csv()`` mangles the first column name unless ``fileEncoding='UTF-8-BOM'`` is passed
+      explicitly (``readr::read_csv()`` and pandas handle it automatically either way).
+    * *example* is the first non-ASCII value found (handy for a log message explaining the
+      choice), or ``None`` when *encoding* is ``'utf-8'``.
+    """
+    if not enable_utf8_bom:
+        return 'utf-8', None
+
+    def _non_ascii(value):
+        return value if isinstance(value, str) and not value.isascii() else None
+
+    for v in list(df.columns) + list(df.index):
+        hit = _non_ascii(v)
+        if hit is not None:
+            return 'utf-8-sig', hit
+    for col in df.select_dtypes(include='object').columns:
+        for v in df[col]:
+            hit = _non_ascii(v)
+            if hit is not None:
+                return 'utf-8-sig', hit
+    return 'utf-8', None
 
 
 def load_configs(project_root: Path | None = None) -> tuple[ConfigData, ConfigData]:
@@ -98,6 +144,30 @@ def clean_email_body(email_body: str) -> str:
     return email_body.replace('\r', '').replace('\n', '')
 
 
+def _bom_note(record) -> str | None:
+    """Build one aggregated note about *record*'s BOM-affected output file(s), if any.
+
+    Multiple output files (e.g. one per program in a multi-program Counts run) can share the
+    same file name, differing only by parent folder — a separate warning per file was confusing
+    to tell apart. This produces a single explanatory note instead; the affected file(s) are
+    marked with "*" next to their path in the email body (see file_status.html).
+    """
+    if not record.bom_applied_paths:
+        return None
+    count = len(record.bom_applied_paths)
+    if count == 1:
+        return (
+            f'The output file marked with "*" contains non-ASCII character(s) '
+            f'(e.g. "{record.bom_example}") and was saved with a UTF-8 BOM so it displays '
+            f'correctly when opened directly in Excel.'
+        )
+    return (
+        f'The {count} output files marked with "*" contain non-ASCII character(s) '
+        f'(e.g. "{record.bom_example}") and were saved with a UTF-8 BOM so they display '
+        f'correctly when opened directly in Excel.'
+    )
+
+
 def send_status_email(logger, file_records, log_filename, main_cfg, subject_prefix: str = None,
                        process_label: str = None):
     """Build and send a processing status email.
@@ -118,6 +188,7 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
 
         file_sections = []
         for record in file_records:
+            bom_note = _bom_note(record)
             template_feeder = {
                 'source_file':             record.source_file,
                 'provider_name':           record.provider_name,
@@ -138,14 +209,15 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
                 'counts_output':           str(record.counts_output) if record.counts_output else '',
                 'counts_aliquot_count':    record.counts_aliquot_count,
                 'aliquots':                record.aliquots,
-                'warnings':                record.warnings,
+                'warnings':                record.warnings + [bom_note] if bom_note else record.warnings,
                 'errors':                  record.errors,
+                'bom_applied_paths':       set(record.bom_applied_paths),
             }
             section_html = populate_email_template('file_status.html', template_feeder, templates_dir)
             file_sections.append(section_html)
 
         files_with_errors = sum(1 for r in file_records if r.errors)
-        files_with_warnings = sum(1 for r in file_records if r.warnings)
+        files_with_warnings = sum(1 for r in file_records if r.warnings or r.bom_applied_paths)
 
         final_feeder = {
             'run_time':           time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -202,6 +274,7 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
         # Render each entry using the existing file_status.html template
         entry_sections = []
         for entry in request_record.entries:
+            bom_note = _bom_note(entry)
             template_feeder = {
                 'source_file':             entry.source_file,
                 'provider_name':           entry.provider_name,
@@ -222,8 +295,9 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
                 'counts_output':           str(entry.counts_output) if entry.counts_output else '',
                 'counts_aliquot_count':    entry.counts_aliquot_count,
                 'aliquots':                entry.aliquots,
-                'warnings':                entry.warnings,
+                'warnings':                entry.warnings + [bom_note] if bom_note else entry.warnings,
                 'errors':                  entry.errors,
+                'bom_applied_paths':       set(entry.bom_applied_paths),
                 # Request-specific context for the template
                 'raw_data_source':         getattr(entry, 'raw_data_source', ''),
                 'program_code_override':   getattr(entry, 'program_code_override', ''),

@@ -24,15 +24,30 @@ class FileRecord:
         self.counts_aliquot_count = 0         # number of aliquots from the counts step
         self.errors = []                      # list of str (message text only)
         self.warnings = []                    # list of str
+        self.bom_applied_paths = []           # list of str(Path) saved with a UTF-8 BOM
+        self.bom_example = None               # first non-ASCII value that triggered a BOM
 
 
 class CapturingLogHandler(logging.Handler):
-    """Attaches to a logger and captures WARNING/ERROR messages into a FileRecord."""
+    """Attaches to a logger and captures WARNING/ERROR messages into a FileRecord.
+
+    Log calls tagged with ``extra={'bom_path': ..., 'bom_example': ...}`` (see
+    alignment/file_processor.py and mc_copy_number_counts.py) are routed into
+    ``record.bom_applied_paths``/``record.bom_example`` instead of ``record.warnings`` — this
+    lets the email builder emit a single aggregated BOM note per record (see utils/common.py)
+    rather than one confusingly similar warning per output file.
+    """
     def __init__(self, file_record: FileRecord):
         super().__init__()
         self._record = file_record
 
     def emit(self, log_record):
+        bom_path = getattr(log_record, 'bom_path', None)
+        if bom_path is not None:
+            self._record.bom_applied_paths.append(bom_path)
+            if self._record.bom_example is None:
+                self._record.bom_example = getattr(log_record, 'bom_example', None)
+            return
         msg = log_record.getMessage()
         if log_record.levelno >= logging.ERROR:
             self._record.errors.append(msg)
@@ -59,7 +74,7 @@ class RequestRecord:
     def has_warnings(self):
         if self.warnings:
             return True
-        return any(e.warnings for e in self.entries)
+        return any(e.warnings or e.bom_applied_paths for e in self.entries)
 
 
 class RequestEntryRecord(FileRecord):

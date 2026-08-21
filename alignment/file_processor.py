@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from providers.base_provider import BaseProvider
+from utils.common import resolve_csv_write_encoding
 
 
 class AlignmentFileProcessor:
@@ -21,11 +22,13 @@ class AlignmentFileProcessor:
       On any error after step 1, the file is moved to reprocess/ for manual intervention.
     """
 
-    def __init__(self, provider: BaseProvider, raw_data_dir: str, logger, schema_map: dict = None):
+    def __init__(self, provider: BaseProvider, raw_data_dir: str, logger, schema_map: dict = None,
+                enable_utf8_bom: bool = True):
         self.provider = provider
         self.raw_data_dir = Path(raw_data_dir)
         self.logger = logger
         self.schema_map = schema_map or {}
+        self.enable_utf8_bom = enable_utf8_bom
 
     @staticmethod
     def _unique_dest_path(dest_dir: Path, file_name: str) -> Path:
@@ -48,7 +51,7 @@ class AlignmentFileProcessor:
             n += 1
 
     def process_file(self, file_path: Path, temp_processing_dir: Path, processed_dir: Path,
-                     reprocess_dir: Path) -> bool:
+                     reprocess_dir: Path) -> Path | None:
         """Process a single file end-to-end.
 
         :param file_path: Full path to the file in the ready/ folder
@@ -71,19 +74,19 @@ class AlignmentFileProcessor:
             self.logger.warning(
                 f'[{self.provider.name}] File "{file_name}" was already claimed by another process. Skipping.'
             )
-            return False
+            return None
         except PermissionError:
             self.logger.warning(
                 f'[{self.provider.name}] File "{file_name}" is locked by another process (e.g. open in Excel) '
                 f'and cannot be moved. The file remains in the ready folder and will be attempted again on the next run.'
             )
-            return False
+            return None
         except Exception:
             self.logger.error(
                 f'[{self.provider.name}] Failed to move "{file_name}" to temp_processing.\n'
                 + traceback.format_exc()
             )
-            return False
+            return None
 
         try:
             # --- Step 2: extract ---
@@ -121,7 +124,20 @@ class AlignmentFileProcessor:
             # --- Step 4: save CSV ---
             out_csv_name = f'{stem}.csv'
             out_csv_path = out_subfolder / out_csv_name
-            df.to_csv(out_csv_path, index=False)
+            # Only add a UTF-8 BOM (via utf-8-sig) when the data actually needs it — see
+            # resolve_csv_write_encoding()'s docstring for why this is conditional rather than
+            # always-on.
+            encoding, non_ascii_example = resolve_csv_write_encoding(df, enable_utf8_bom=self.enable_utf8_bom)
+            if non_ascii_example:
+                # Logged at INFO (not WARNING) and tagged via `extra` so the status email
+                # aggregates this into a single BOM note per record instead of one confusingly
+                # similar warning per output file (see CapturingLogHandler).
+                self.logger.info(
+                    f'[{self.provider.name}] "{out_csv_name}" saved with a UTF-8 BOM '
+                    f'(non-ASCII character(s) found, e.g. "{non_ascii_example}").',
+                    extra={'bom_path': str(out_csv_path), 'bom_example': non_ascii_example},
+                )
+            df.to_csv(out_csv_path, index=False, encoding=encoding)
             self.logger.info(
                 f'[{self.provider.name}] Saved {len(df)} rows → "{out_csv_path}"'
             )

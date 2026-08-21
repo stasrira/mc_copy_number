@@ -13,13 +13,17 @@ standalone with --input_file/--input_dir pointing to an alignment CSV in raw_dat
 
 import argparse
 import os
+import re
 import traceback
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
 
-from utils.common import get_project_root, send_status_email, load_configs, initialize_run
+from utils.common import (
+    get_project_root, send_status_email, load_configs, initialize_run,
+    resolve_csv_write_encoding, csv_bom_enabled,
+)
 from utils.configuration import ConfigData
 from utils.issue_collector import FileRecord, CapturingLogHandler
 import utils.global_const as gc
@@ -28,6 +32,12 @@ load_dotenv()
 
 # Process identification shown in the status email subject and header.
 PROCESS_LABEL = 'Counts'
+
+# A Program_code override comes directly from a lab-submitted request Excel column and is used
+# as a filesystem path component (processed_data_dir/<program_code>/...). Restrict to a safe
+# charset and require the value to start/end with an alphanumeric or underscore character, so a
+# pure-dot component like ".." (a path-traversal component) can never validate.
+_PROGRAM_CODE_RE = re.compile(r'^[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?$')
 
 
 def _validate_columns(df: pd.DataFrame, required_columns: list[str], csv_path: Path, logger) -> bool:
@@ -50,7 +60,7 @@ def validate_aligned_csv(csv_path: Path, schema_fields: dict, logger) -> tuple[p
               on any validation or read failure.
     """
     try:
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(csv_path, encoding='utf-8-sig')
     except Exception:
         err = (
             f'Failed to read CSV "{csv_path}". '
@@ -114,7 +124,8 @@ def run_aliquot_db_validation(record, main_cfg, logger) -> bool:
 def _process_one_file(csv_path: Path, processed_data_dir: Path,
                       schema_fields: dict, output_path_depth: int, logger,
                       program_code: str = None,
-                      aliquot_filter: list[str] = None) -> tuple[bool, Path | None, int]:
+                      aliquot_filter: list[str] = None,
+                      enable_utf8_bom: bool = True) -> tuple[bool, Path | None, int]:
     """Transpose a single alignment CSV and write the count table to processed_data.
 
     :param csv_path: Path to the alignment CSV in raw_data
@@ -126,6 +137,7 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
                          directly under processed_data_dir (e.g. processed_data/ECHO_Code/<run>/file.csv)
     :param aliquot_filter: When provided, only rows whose aliquot ID is in this list are included
                            in the output (used when splitting by program in multi-program runs)
+    :param enable_utf8_bom: Csv_output/enable_utf8_bom config flag; see resolve_csv_write_encoding().
     :returns: (success, output_path, aliquot_count) tuple
     """
     logger.info(f'Processing counts for: "{csv_path}"')
@@ -142,7 +154,7 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
         return False, None, 0
 
     try:
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(csv_path, encoding='utf-8-sig')
     except Exception:
         logger.error(f'Failed to read CSV "{csv_path}":\n' + traceback.format_exc())
         return False, None, 0
@@ -180,7 +192,22 @@ def _process_one_file(csv_path: Path, processed_data_dir: Path,
 
     try:
         os.makedirs(out_path.parent, exist_ok=True)
-        df_counts.to_csv(out_path)
+        # Only add a UTF-8 BOM (via utf-8-sig) when the data actually needs it — see
+        # resolve_csv_write_encoding()'s docstring for why this is conditional rather than
+        # always-on. Each program's split-off Counts file is checked independently, since only
+        # some programs may contain non-ASCII aliquot IDs in a multi-program run.
+        encoding, non_ascii_example = resolve_csv_write_encoding(df_counts, enable_utf8_bom=enable_utf8_bom)
+        if non_ascii_example:
+            # Logged at INFO (not WARNING) and tagged via `extra` so the status email aggregates
+            # this into a single BOM note per record instead of one confusingly similar warning
+            # per output file — output files across programs can share the same name, differing
+            # only by parent folder, which made per-file warnings hard to tell apart.
+            logger.info(
+                f'"{out_path.name}" saved with a UTF-8 BOM (non-ASCII character(s) found, '
+                f'e.g. aliquot ID "{non_ascii_example}").',
+                extra={'bom_path': str(out_path), 'bom_example': non_ascii_example},
+            )
+        df_counts.to_csv(out_path, encoding=encoding)
         logger.info(
             f'Counts table saved ({aliquot_count} aliquot(s), '
             f'{len(df_counts)} measurement(s)) → "{out_path}"'
@@ -223,6 +250,8 @@ def run_counts(logger, file_records: list = None, main_cfg: ConfigData = None, l
         logger.error('Alligned_file_schema/fields is not defined in main_config.yaml. Cannot validate columns. Aborting.')
         return
 
+    enable_utf8_bom = csv_bom_enabled(main_cfg)
+
     logger.info(f'Counts output dir   : {processed_data_dir}')
     logger.info(
         f'Output path depth   : {output_path_depth} '
@@ -259,6 +288,7 @@ def run_counts(logger, file_records: list = None, main_cfg: ConfigData = None, l
                         schema_fields, output_path_depth, logger,
                         program_code=prog_code,
                         aliquot_filter=prog_aliquots,
+                        enable_utf8_bom=enable_utf8_bom,
                     )
                     record.counts_outputs.append((prog_code, out_path))
                     record.counts_aliquot_count += aliquot_count
@@ -280,6 +310,7 @@ def run_counts(logger, file_records: list = None, main_cfg: ConfigData = None, l
                     Path(record.alignment_output), processed_data_dir,
                     schema_fields, output_path_depth, logger,
                     program_code=prog_code,
+                    enable_utf8_bom=enable_utf8_bom,
                 )
                 record.counts_ok = ok
                 record.counts_output = out_path
@@ -333,6 +364,15 @@ def process_counts_input(
     handler = CapturingLogHandler(record)
     logger.addHandler(handler)
     try:
+        if program_code_override and not _PROGRAM_CODE_RE.match(program_code_override):
+            logger.error(
+                f'Invalid Program_code override "{program_code_override}": only letters, digits, '
+                f'".", "-" and "_" are allowed, and the value cannot start or end with "." or "-" '
+                f'(this value is used as an output folder name). Please correct it and resubmit.'
+            )
+            record.counts_ran = False
+            return record
+
         # Validate aligned CSV format and extract aliquots
         schema_fields: dict = main_cfg.get_value('Alligned_file_schema/fields') or {}
         df, fmt_err = validate_aligned_csv(input_path, schema_fields, logger)

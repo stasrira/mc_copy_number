@@ -1,3 +1,5 @@
+import sys
+
 import yaml
 
 
@@ -7,15 +9,21 @@ class ConfigData:
         self.loaded = False
         self.cfg_path = cfg_path
         self.cfg = {}
+        self.error = None
 
         try:
             with open(cfg_path, 'r') as ymlfile:
                 self.cfg = yaml.safe_load(ymlfile)
             self.loaded = True
         except FileNotFoundError:
+            self.error = f'Config file not found: "{cfg_path}"'
             self.cfg = None
-        except Exception:
+        except Exception as e:
+            self.error = f'Failed to load config file "{cfg_path}": {e}'
             self.cfg = None
+
+        if self.error:
+            print(f'WARNING: {self.error}', file=sys.stderr)
 
     def get_value(self, yaml_path, delim='/'):
         path_elems = yaml_path.split(delim)
@@ -25,7 +33,12 @@ class ConfigData:
             if val and el in val:
                 try:
                     val = val[el]
-                except Exception:
+                except Exception as e:
+                    print(
+                        f'WARNING: Failed to resolve config path "{yaml_path}" in '
+                        f'"{self.cfg_path}" at element "{el}": {e}',
+                        file=sys.stderr,
+                    )
                     val = None
                     break
             else:

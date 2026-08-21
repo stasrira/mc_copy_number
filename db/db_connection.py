@@ -94,5 +94,5 @@ class MetadataDB:
             try:
                 self._conn.close()
             except Exception:
-                pass
+                self.logger.warning('Error closing database connection:\n' + traceback.format_exc())
             self._conn = None

@@ -33,39 +33,40 @@ class ExcelProvider(BaseProvider):
         if not columns_cfg:
             raise ValueError(f'[{self.name}] No columns defined in provider config extraction.columns.')
 
-        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-        ws = wb[sheet_name] if sheet_name else wb.active
-        self.logger.info(f'[{self.name}] Using sheet: "{ws.title}"')
-
         # Build a mapping: output_field -> 0-based column index
         col_map = {}
         for field, cfg in columns_cfg.items():
             col_1idx = int(cfg.get('column_index'))
             col_map[field] = col_1idx - 1  # convert to 0-based
 
-        # Validate headers against what the config expects
-        header_row_values = next(
-            ws.iter_rows(min_row=header_row_1idx, max_row=header_row_1idx, values_only=True)
-        )
-        self._validate_headers(header_row_values, columns_cfg, col_map)
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        try:
+            ws = wb[sheet_name] if sheet_name else wb.active
+            self.logger.info(f'[{self.name}] Using sheet: "{ws.title}"')
 
-        # Extract data rows
-        records = []
-        anchor_col_idx = col_map.get(data_end_anchor) if data_end_anchor else None
+            # Validate headers against what the config expects
+            header_row_values = next(
+                ws.iter_rows(min_row=header_row_1idx, max_row=header_row_1idx, values_only=True)
+            )
+            self._validate_headers(header_row_values, columns_cfg, col_map)
 
-        for row_values in ws.iter_rows(min_row=data_start_row_1idx, values_only=True):
-            # End-of-data detection
-            if data_end_strategy == 'first_empty' and anchor_col_idx is not None:
-                anchor_val = row_values[anchor_col_idx] if anchor_col_idx < len(row_values) else None
-                if anchor_val is None or str(anchor_val).strip() == '':
-                    break
+            # Extract data rows
+            records = []
+            anchor_col_idx = col_map.get(data_end_anchor) if data_end_anchor else None
 
-            record = {}
-            for field, col_0idx in col_map.items():
-                record[field] = row_values[col_0idx] if col_0idx < len(row_values) else None
-            records.append(record)
+            for row_values in ws.iter_rows(min_row=data_start_row_1idx, values_only=True):
+                # End-of-data detection
+                if data_end_strategy == 'first_empty' and anchor_col_idx is not None:
+                    anchor_val = row_values[anchor_col_idx] if anchor_col_idx < len(row_values) else None
+                    if anchor_val is None or str(anchor_val).strip() == '':
+                        break
 
-        wb.close()
+                record = {}
+                for field, col_0idx in col_map.items():
+                    record[field] = row_values[col_0idx] if col_0idx < len(row_values) else None
+                records.append(record)
+        finally:
+            wb.close()
 
         df = pd.DataFrame(records, columns=list(col_map.keys()))
         self.logger.info(f'[{self.name}] Extracted {len(df)} data rows.')

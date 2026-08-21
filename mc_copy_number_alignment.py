@@ -46,7 +46,7 @@ def _discover_providers(providers_config_dir: Path, logger):
                 providers.append(cfg)
                 logger.info(f'Discovered provider config: "{config_file}"')
             else:
-                logger.warning(f'Failed to load provider config: "{config_file}"')
+                logger.warning(f'Failed to load provider config: "{config_file}". {cfg.error}')
         else:
             logger.debug(f'No {gc.PROVIDER_CONFIG_FILE_NAME} found in "{entry}", skipping.')
 

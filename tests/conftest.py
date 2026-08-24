@@ -1,6 +1,7 @@
 import logging
 
 import openpyxl
+import pandas as pd
 import pytest
 import yaml
 
@@ -147,3 +148,31 @@ def add_provider_config():
         return provider_dir
 
     return _add
+
+
+@pytest.fixture
+def schema_fields():
+    """The canonical Alligned_file_schema/fields mapping used throughout the pipeline."""
+    return {
+        'aliquot_id': 'aliquot_id',
+        'mtdna_mean': 'mtDNA_copy_num_mean',
+        'mtdna_se': 'mtDNA_copy_num_SE',
+    }
+
+
+@pytest.fixture
+def write_aligned_csv():
+    """Factory: write a minimal aligned CSV (aliquot_id + measurement columns) to *path*."""
+
+    def _write(path, aliquot_ids, means=None, ses=None):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        n = len(aliquot_ids)
+        df = pd.DataFrame({
+            'aliquot_id': aliquot_ids,
+            'mtDNA_copy_num_mean': means if means is not None else [float(i) for i in range(n)],
+            'mtDNA_copy_num_SE': ses if ses is not None else [0.1] * n,
+        })
+        df.to_csv(path, index=False)
+        return path
+
+    return _write

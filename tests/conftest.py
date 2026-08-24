@@ -176,3 +176,16 @@ def write_aligned_csv():
         return path
 
     return _write
+
+
+@pytest.fixture
+def write_request_xlsx():
+    """Factory: write a request Excel file from a list of row-dicts to *path*."""
+
+    def _write(path, rows: list, columns: list = None):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame(rows, columns=columns)
+        df.to_excel(path, index=False)
+        return path
+
+    return _write

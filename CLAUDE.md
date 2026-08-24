@@ -23,7 +23,11 @@ python mc_copy_number_requests.py     # process ad-hoc request files (re-run cou
 
 Setup: `pip install -r requirements.txt`, copy `.env` (SMTP + `MC_DB_*` DB credentials) and create
 `configs/location_config.yaml` from `configs/location_config_example.yaml` (git-ignored — it holds
-machine-specific absolute paths). There are no automated tests in this repo.
+machine-specific absolute paths).
+
+Tests: `pip install -r requirements-dev.txt`, then `pytest`. Tests live under `tests/unit/` and
+`tests/integration/` (see `IGNORE__temp/test_plan.md` for the full test plan and rollout order).
+No test talks to a real DB or SMTP server — `pyodbc`/`yagmail` are mocked at their call boundary.
 
 ## Pipeline architecture
 

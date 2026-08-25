@@ -128,6 +128,39 @@ def get_environment_variable(var_name):
     return None
 
 
+def claim_file(file_path: Path, temp_dir: Path, logger, log_label: str = '') -> Path | None:
+    """Atomically claim *file_path* by ``os.rename``-ing it into *temp_dir*.
+
+    This is the shared "ready/ -> temp/" claim step of the folder lifecycle pattern (see
+    CLAUDE.md) used by both the alignment file processor and the request-file processor: an
+    atomic rename is how concurrent/repeated runs avoid double-processing the same file.
+    ``FileNotFoundError`` means another process already claimed it; ``PermissionError`` means the
+    file is open elsewhere (e.g. in Excel) — both are expected, transient conditions rather than
+    real errors, so they're logged at WARNING and the file is simply left for a later run.
+
+    :param log_label: optional prefix for log messages, e.g. ``'[ProviderA] '`` or ``'Request file '``.
+    :returns: the claimed path inside *temp_dir* on success, ``None`` on failure (file stays put).
+    """
+    temp_path = temp_dir / file_path.name
+    try:
+        os.makedirs(temp_dir, exist_ok=True)
+        os.rename(file_path, temp_path)
+        logger.info(f'{log_label}Claimed "{file_path.name}" -> "{temp_dir}".')
+        return temp_path
+    except FileNotFoundError:
+        logger.warning(f'{log_label}"{file_path.name}" was already claimed by another process. Skipping.')
+        return None
+    except PermissionError:
+        logger.warning(
+            f'{log_label}"{file_path.name}" is locked by another process (e.g. open in Excel) and cannot '
+            f'be moved. It remains in place and will be attempted again on the next run.'
+        )
+        return None
+    except Exception:
+        logger.error(f'{log_label}Failed to claim "{file_path.name}":\n' + traceback.format_exc())
+        return None
+
+
 def populate_email_template(template_name: str, template_feeder: dict, templates_dir: Path) -> str:
     """Render a Jinja2 template from templates_dir with template_feeder exposed as 'process'."""
     file_loader = FileSystemLoader(str(templates_dir))

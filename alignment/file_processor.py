@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from providers.base_provider import BaseProvider
-from utils.common import resolve_csv_write_encoding
+from utils.common import claim_file, resolve_csv_write_encoding
 
 
 class AlignmentFileProcessor:
@@ -64,28 +64,8 @@ class AlignmentFileProcessor:
         self.logger.info(f'[{self.provider.name}] Starting processing of: "{file_name}"')
 
         # --- Step 1: atomically claim the file ---
-        temp_file_path = temp_processing_dir / file_name
-        try:
-            os.makedirs(temp_processing_dir, exist_ok=True)
-            os.rename(file_path, temp_file_path)
-            self.logger.info(f'[{self.provider.name}] Claimed file → temp_processing: "{file_name}"')
-        except FileNotFoundError:
-            # Another process already claimed it — skip silently
-            self.logger.warning(
-                f'[{self.provider.name}] File "{file_name}" was already claimed by another process. Skipping.'
-            )
-            return None
-        except PermissionError:
-            self.logger.warning(
-                f'[{self.provider.name}] File "{file_name}" is locked by another process (e.g. open in Excel) '
-                f'and cannot be moved. The file remains in the ready folder and will be attempted again on the next run.'
-            )
-            return None
-        except Exception:
-            self.logger.error(
-                f'[{self.provider.name}] Failed to move "{file_name}" to temp_processing.\n'
-                + traceback.format_exc()
-            )
+        temp_file_path = claim_file(file_path, temp_processing_dir, self.logger, log_label=f'[{self.provider.name}] ')
+        if temp_file_path is None:
             return None
 
         try:

@@ -14,6 +14,7 @@ import pandas as pd
 
 from alignment.file_processor import AlignmentFileProcessor
 from mc_copy_number_counts import process_counts_input
+from utils.common import claim_file
 from utils.configuration import ConfigData
 from utils.issue_collector import RequestRecord, RequestEntryRecord, CapturingLogHandler
 import utils.global_const as gc
@@ -50,25 +51,6 @@ def _discover_request_files(ready_dir: Path):
     if not ready_dir.is_dir():
         return []
     return sorted(f for f in ready_dir.glob('*.xlsx') if not f.name.startswith('~$'))
-
-
-def _claim_request_file(file_path: Path, temp_dir: Path, logger):
-    """Atomically move a request file from ready/ to processing_temp/.
-
-    :returns: Path in processing_temp on success, None on failure.
-    """
-    temp_path = temp_dir / file_path.name
-    try:
-        os.makedirs(temp_dir, exist_ok=True)
-        os.rename(file_path, temp_path)
-        logger.info(f'Claimed request file: "{file_path.name}" -> processing_temp')
-        return temp_path
-    except FileNotFoundError:
-        logger.warning(f'Request file "{file_path.name}" was already claimed by another process. Skipping.')
-        return None
-    except Exception:
-        logger.error(f'Failed to claim request file "{file_path.name}":\n' + traceback.format_exc())
-        return None
 
 
 def _complete_request_file(temp_file_path: Path, dest_dir: Path, logger) -> Path | None:
@@ -333,7 +315,7 @@ def process_request_file(
     logger.info(f'Starting processing of request file: "{file_path.name}"')
 
     # Claim the file
-    temp_file_path = _claim_request_file(file_path, dirs['processing_temp'], logger)
+    temp_file_path = claim_file(file_path, dirs['processing_temp'], logger, log_label='Request file ')
     if temp_file_path is None:
         record.errors.append(f'Failed to claim request file "{file_path.name}".')
         return record

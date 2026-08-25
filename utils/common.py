@@ -168,6 +168,55 @@ def _bom_note(record) -> str | None:
     )
 
 
+def _build_entry_feeder(record) -> dict:
+    """Build the per-file/entry Jinja2 feeder dict shared by the pipeline and request status emails.
+
+    :param record: a FileRecord or RequestEntryRecord (utils/issue_collector.py) — both expose the
+                    same alignment/counts/db-validation attributes rendered by file_status.html.
+    """
+    bom_note = _bom_note(record)
+    return {
+        'source_file':             record.source_file,
+        'provider_name':           record.provider_name,
+        'alignment_ok':            record.alignment_ok,
+        'alignment_ran':           record.alignment_ran,
+        'alignment_output':        str(record.alignment_output) if record.alignment_output else '',
+        'alignment_aliquot_count': record.alignment_aliquot_count,
+        'counts_ok':               record.counts_ok,
+        'counts_ran':              record.counts_ran,
+        'counts_skipped':          record.alignment_output is None,
+        'db_validation_ok':        record.db_validation_ok,
+        'db_validation_skipped':   getattr(record, 'db_validation_skipped', False),
+        'program_code':            record.program_code,
+        'program_groups':          record.program_groups,
+        'counts_outputs':          record.counts_outputs,
+        'launch_param':            record.launch_param,
+        'launch_value':            record.launch_value,
+        'counts_output':           str(record.counts_output) if record.counts_output else '',
+        'counts_aliquot_count':    record.counts_aliquot_count,
+        'aliquots':                record.aliquots,
+        'warnings':                record.warnings + [bom_note] if bom_note else record.warnings,
+        'errors':                  record.errors,
+        'bom_applied_paths':       set(record.bom_applied_paths),
+    }
+
+
+def _send_email_if_enabled(logger, main_cfg, subject: str, email_body: str, kind_label: str) -> None:
+    """Send *email_body* via SMTP if ``Email/send_emails`` is on; otherwise just log that it's off.
+
+    :param kind_label: prefix for the log line (e.g. "Status" / "Request status").
+    """
+    if main_cfg.get_value('Email/send_emails'):
+        from utils.send_email import send_email
+
+        email_from = main_cfg.get_value('Email/default_from_email')
+        emails_to = main_cfg.get_value('Email/sent_to_emails')
+        send_email(emails_to, subject, email_body, email_from=email_from)
+        logger.info(f'{kind_label} email sent to: {emails_to}')
+    else:
+        logger.info(f'{kind_label} email sending is disabled in config.')
+
+
 def send_status_email(logger, file_records, log_filename, main_cfg, subject_prefix: str = None,
                        process_label: str = None):
     """Build and send a processing status email.
@@ -181,38 +230,12 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
                           shown in the email header
     """
     try:
-        from utils.send_email import send_email
-
         project_root = get_project_root()
         templates_dir = project_root / 'templates'
 
         file_sections = []
         for record in file_records:
-            bom_note = _bom_note(record)
-            template_feeder = {
-                'source_file':             record.source_file,
-                'provider_name':           record.provider_name,
-                'alignment_ok':            record.alignment_ok,
-                'alignment_ran':           record.alignment_ran,
-                'alignment_output':        str(record.alignment_output) if record.alignment_output else '',
-                'alignment_aliquot_count': record.alignment_aliquot_count,
-                'counts_ok':               record.counts_ok,
-                'counts_ran':              record.counts_ran,
-                'counts_skipped':          record.alignment_output is None,
-                'db_validation_ok':        record.db_validation_ok,
-                'db_validation_skipped':   getattr(record, 'db_validation_skipped', False),
-                'program_code':            record.program_code,
-                'program_groups':          record.program_groups,
-                'counts_outputs':          record.counts_outputs,
-                'launch_param':            record.launch_param,
-                'launch_value':            record.launch_value,
-                'counts_output':           str(record.counts_output) if record.counts_output else '',
-                'counts_aliquot_count':    record.counts_aliquot_count,
-                'aliquots':                record.aliquots,
-                'warnings':                record.warnings + [bom_note] if bom_note else record.warnings,
-                'errors':                  record.errors,
-                'bom_applied_paths':       set(record.bom_applied_paths),
-            }
+            template_feeder = _build_entry_feeder(record)
             section_html = populate_email_template('file_status.html', template_feeder, templates_dir)
             file_sections.append(section_html)
 
@@ -241,13 +264,7 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
         else:
             subject = f'{prefix} - {len(file_records)} file(s) processed successfully'
 
-        if main_cfg.get_value('Email/send_emails'):
-            email_from = main_cfg.get_value('Email/default_from_email')
-            emails_to = main_cfg.get_value('Email/sent_to_emails')
-            send_email(emails_to, subject, email_body, email_from=email_from)
-            logger.info(f'Status email sent to: {emails_to}')
-        else:
-            logger.info('Status email sending is disabled in config.')
+        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Status')
 
     except Exception:
         logger.error('Failed to send status email:\n' + traceback.format_exc())
@@ -266,44 +283,20 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
                           shown in the email header
     """
     try:
-        from utils.send_email import send_email
-
         project_root = get_project_root()
         templates_dir = project_root / 'templates'
 
         # Render each entry using the existing file_status.html template
         entry_sections = []
         for entry in request_record.entries:
-            bom_note = _bom_note(entry)
-            template_feeder = {
-                'source_file':             entry.source_file,
-                'provider_name':           entry.provider_name,
-                'alignment_ok':            entry.alignment_ok,
-                'alignment_ran':           entry.alignment_ran,
-                'alignment_output':        str(entry.alignment_output) if entry.alignment_output else '',
-                'alignment_aliquot_count': entry.alignment_aliquot_count,
-                'counts_ok':               entry.counts_ok,
-                'counts_ran':              entry.counts_ran,
-                'counts_skipped':          entry.alignment_output is None,
-                'db_validation_ok':        entry.db_validation_ok,
-                'db_validation_skipped':   getattr(entry, 'db_validation_skipped', False),
-                'program_code':            entry.program_code,
-                'program_groups':          entry.program_groups,
-                'counts_outputs':          entry.counts_outputs,
-                'launch_param':            entry.launch_param,
-                'launch_value':            entry.launch_value,
-                'counts_output':           str(entry.counts_output) if entry.counts_output else '',
-                'counts_aliquot_count':    entry.counts_aliquot_count,
-                'aliquots':                entry.aliquots,
-                'warnings':                entry.warnings + [bom_note] if bom_note else entry.warnings,
-                'errors':                  entry.errors,
-                'bom_applied_paths':       set(entry.bom_applied_paths),
+            template_feeder = _build_entry_feeder(entry)
+            template_feeder.update({
                 # Request-specific context for the template
                 'raw_data_source':         getattr(entry, 'raw_data_source', ''),
                 'program_code_override':   getattr(entry, 'program_code_override', ''),
                 'skip_aliquot_validation': getattr(entry, 'skip_aliquot_validation', False),
                 'row_number':              getattr(entry, 'row_number', ''),
-            }
+            })
             section_html = populate_email_template('file_status.html', template_feeder, templates_dir)
             entry_sections.append(section_html)
 
@@ -334,13 +327,7 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
         else:
             subject = f'{prefix} - Request completed successfully - "{Path(request_record.request_file).name}"'
 
-        if main_cfg.get_value('Email/send_emails'):
-            email_from = main_cfg.get_value('Email/default_from_email')
-            emails_to = main_cfg.get_value('Email/sent_to_emails')
-            send_email(emails_to, subject, email_body, email_from=email_from)
-            logger.info(f'Request status email sent to: {emails_to}')
-        else:
-            logger.info('Request status email sending is disabled in config.')
+        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Request status')
 
     except Exception:
         logger.error('Failed to send request status email:\n' + traceback.format_exc())

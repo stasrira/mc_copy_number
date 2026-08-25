@@ -13,6 +13,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from alignment.aliquot_db_validator import run_aliquot_db_validation
 from alignment.file_processor import AlignmentFileProcessor
 from providers.provider_factory import create_provider
 from utils.common import get_project_root, send_status_email, load_configs, initialize_run, csv_bom_enabled
@@ -165,19 +166,9 @@ def run_alignment(logger):
                     )
                     record.db_validation_skipped = not run_db_validation
                     if run_db_validation:
-                        allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
-                        logger.info(f'[{provider_name}] Validating {len(record.aliquots)} aliquot(s) against DB.')
-                        from alignment.aliquot_db_validator import validate_aliquots
-                        ok, program_groups, val_errors = validate_aliquots(
-                            record.aliquots, main_cfg, logger, allow_multiple_programs=allow_multiple
+                        ok = run_aliquot_db_validation(
+                            record, main_cfg, logger, log_prefix=f'[{provider_name}] '
                         )
-                        record.db_validation_ok = ok
-                        record.program_groups = program_groups or {}
-                        record.program_code = (
-                            next(iter(program_groups)) if program_groups and len(program_groups) == 1 else None
-                        )
-                        for err in val_errors:
-                            logger.error(f'[{provider_name}] {err}')
                         if not ok:
                             logger.error(
                                 f'[{provider_name}] Aliquot DB validation failed for '

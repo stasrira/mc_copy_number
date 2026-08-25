@@ -218,7 +218,7 @@ def run_counts(logger, file_records: list = None, main_cfg: ConfigData = None, l
         logger.error('Location/mitCopyN_studies_dir is not set in location_config.yaml. Aborting.')
         return
 
-    processed_data_dir = studies_dir / config_subfolder(main_cfg, 'Counts/processed_data_dir', 'processed_data')
+    processed_data_dir = studies_dir / config_subfolder(main_cfg, 'Counts/processed_data_dir', gc.DEFAULT_PROCESSED_DATA_DIR)
     output_path_depth = int(main_cfg.get_value('Counts/output_path_depth') or 1)
 
     schema_fields: dict = main_cfg.get_value('Alligned_file_schema/fields') or {}

@@ -68,14 +68,16 @@ def run_alignment(logger):
         logger.error('Location/mitCopyN_studies_dir is not set in location_config.yaml. Aborting.')
         return []
 
-    run_folders_dir = studies_dir / config_subfolder(main_cfg, 'Alignment/run_folders_dir', 'runFolders')
-    raw_data_dir = studies_dir / config_subfolder(main_cfg, 'Alignment/raw_data_dir', 'raw_data')
-    ready_subfolder = config_subfolder(main_cfg, 'Alignment/ready_subfolder', 'ready')
-    temp_subfolder = config_subfolder(main_cfg, 'Alignment/processing_temp_subfolder', 'temp_processing')
-    processed_subfolder = config_subfolder(main_cfg, 'Alignment/processed_subfolder', 'processed')
-    reprocess_subfolder = config_subfolder(main_cfg, 'Alignment/reprocess_subfolder', 'reprocess')
+    run_folders_dir = studies_dir / config_subfolder(main_cfg, 'Alignment/run_folders_dir', gc.DEFAULT_RUN_FOLDERS_DIR)
+    raw_data_dir = studies_dir / config_subfolder(main_cfg, 'Alignment/raw_data_dir', gc.DEFAULT_RAW_DATA_DIR)
+    ready_subfolder = config_subfolder(main_cfg, 'Alignment/ready_subfolder', gc.DEFAULT_ALIGNMENT_READY_SUBFOLDER)
+    temp_subfolder = config_subfolder(
+        main_cfg, 'Alignment/processing_temp_subfolder', gc.DEFAULT_ALIGNMENT_PROCESSING_TEMP_SUBFOLDER
+    )
+    processed_subfolder = config_subfolder(main_cfg, 'Alignment/processed_subfolder', gc.DEFAULT_ALIGNMENT_PROCESSED_SUBFOLDER)
+    reprocess_subfolder = config_subfolder(main_cfg, 'Alignment/reprocess_subfolder', gc.DEFAULT_ALIGNMENT_REPROCESS_SUBFOLDER)
 
-    providers_config_dir_rel = main_cfg.get_value('Alignment/providers_config_dir') or gc.CONFIG_DIR_PROVIDERS
+    providers_config_dir_rel = config_subfolder(main_cfg, 'Alignment/providers_config_dir', gc.CONFIG_DIR_PROVIDERS)
     providers_config_dir = project_root / providers_config_dir_rel
 
     enable_utf8_bom = csv_bom_enabled(main_cfg)

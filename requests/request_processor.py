@@ -31,10 +31,10 @@ def _resolve_requests_dirs(loc_cfg: ConfigData, main_cfg: ConfigData, project_ro
 
     return {
         'requests_dir': requests_dir,
-        'ready': subfolder('ready_subfolder', 'ready'),
-        'processing_temp': subfolder('processing_temp_subfolder', 'processing_temp'),
-        'processed': subfolder('processed_subfolder', 'processed'),
-        'work': subfolder('reprocess_subfolder', 'work'),
+        'ready': subfolder('ready_subfolder', gc.DEFAULT_REQUESTS_READY_SUBFOLDER),
+        'processing_temp': subfolder('processing_temp_subfolder', gc.DEFAULT_REQUESTS_PROCESSING_TEMP_SUBFOLDER),
+        'processed': subfolder('processed_subfolder', gc.DEFAULT_REQUESTS_PROCESSED_SUBFOLDER),
+        'work': subfolder('reprocess_subfolder', gc.DEFAULT_REQUESTS_REPROCESS_SUBFOLDER),
     }
 
 
@@ -167,7 +167,7 @@ def _resolve_allowed_raw_data_root(loc_cfg: ConfigData, main_cfg: ConfigData) ->
     studies_dir = resolve_studies_dir(loc_cfg)
     if studies_dir is None:
         return None
-    return studies_dir / config_subfolder(main_cfg, 'Alignment/raw_data_dir', 'raw_data')
+    return studies_dir / config_subfolder(main_cfg, 'Alignment/raw_data_dir', gc.DEFAULT_RAW_DATA_DIR)
 
 
 def _resolve_raw_data_source(

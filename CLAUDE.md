@@ -13,13 +13,22 @@ be invoked (e.g. by a scheduled task) and then exit.
 ## Running
 
 ```bash
-./run.sh                              # activates .venv and runs the full pipeline (alignment + counts)
-python mc_copy_number.py              # same, without the venv wrapper
-python mc_copy_number_alignment.py    # alignment step only (Step 1)
-python mc_copy_number_counts.py --input_file path/to/aligned.csv   # counts step only, standalone
-python mc_copy_number_counts.py --input_dir path/to/dir            # same, dir must contain exactly one CSV
-python mc_copy_number_requests.py     # process ad-hoc request files (re-run counts for existing raw_data CSVs)
+./run_mc_copy_number.sh               # activates conda env + .venv and runs the full pipeline (alignment + counts)
+./run_mc_copy_number_alignment.sh     # same wrapper, alignment step only (Step 1)
+./run_mc_copy_number_counts.sh --input_file path/to/aligned.csv   # same wrapper, counts step only; forwards args
+./run_mc_copy_number_counts.sh --input_dir path/to/dir            # same, dir must contain exactly one CSV
+./run_mc_copy_number_requests.sh      # same wrapper, process ad-hoc request files (re-run counts for existing raw_data CSVs)
+
+python mc_copy_number.py              # same entry points, without the conda/venv wrapper
+python mc_copy_number_alignment.py
+python mc_copy_number_counts.py --input_file path/to/aligned.csv
+python mc_copy_number_counts.py --input_dir path/to/dir
+python mc_copy_number_requests.py
 ```
+
+Each `run_*.sh` wrapper validates that the `python3.12.10_odbc` conda environment (the
+odbc-driver-enabled Python used in production) exists before activating it and the project's
+`.venv`, mirroring `IGNORE__temp/run_submission.sh`'s pattern from the sibling submission app.
 
 Setup: `pip install -r requirements.txt`, create `.env` from `.env.example` (SMTP + `MC_DB_*` DB
 credentials) and `configs/location_config.yaml` from `configs/location_config_example.yaml`

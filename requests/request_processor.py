@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 
 from mc_copy_number_counts import process_counts_input
-from utils.common import claim_file, unique_dest_path
+from utils.common import claim_file, config_subfolder, resolve_studies_dir, unique_dest_path
 from utils.configuration import ConfigData
 from utils.issue_collector import RequestRecord, RequestEntryRecord, CapturingLogHandler
 import utils.global_const as gc
@@ -27,7 +27,7 @@ def _resolve_requests_dirs(loc_cfg: ConfigData, main_cfg: ConfigData, project_ro
     requests_dir = Path(requests_dir)
 
     def subfolder(key: str, default: str) -> Path:
-        return requests_dir / (main_cfg.get_value(f'Requests/{key}') or default)
+        return requests_dir / config_subfolder(main_cfg, f'Requests/{key}', default)
 
     return {
         'requests_dir': requests_dir,
@@ -164,10 +164,10 @@ def _resolve_allowed_raw_data_root(loc_cfg: ConfigData, main_cfg: ConfigData) ->
     documented as pointing to one of those files. Returns None if the studies directory is not
     configured.
     """
-    studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
-    if not studies_dir:
+    studies_dir = resolve_studies_dir(loc_cfg)
+    if studies_dir is None:
         return None
-    return Path(studies_dir) / (main_cfg.get_value('Alignment/raw_data_dir') or 'raw_data')
+    return studies_dir / config_subfolder(main_cfg, 'Alignment/raw_data_dir', 'raw_data')
 
 
 def _resolve_raw_data_source(

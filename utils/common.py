@@ -83,6 +83,28 @@ def resolve_log_dir(loc_cfg: ConfigData, project_root: Path | None = None) -> st
     return log_dir
 
 
+def resolve_studies_dir(loc_cfg: ConfigData) -> Path | None:
+    """Resolve ``Location/mitCopyN_studies_dir`` from location config.
+
+    This directory is required by the alignment, counts and request-processing entry points, each
+    of which reacts differently when it's missing (log-and-abort, raise, or fail silently) — so
+    this only resolves the value; the missing-value branch stays with the caller.
+
+    :returns: the studies directory as a Path, or None if the key is not set.
+    """
+    studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
+    return Path(studies_dir) if studies_dir else None
+
+
+def config_subfolder(cfg: ConfigData, key: str, default: str) -> str:
+    """Resolve a subfolder name from *cfg*, falling back to *default* when unset.
+
+    Centralizes the ``cfg.get_value(key) or default`` idiom repeated throughout the pipeline's
+    folder-lifecycle boilerplate (ready/temp/processed/reprocess subfolder names, output dirs).
+    """
+    return cfg.get_value(key) or default
+
+
 def initialize_run(log_name: str, log_filename_prefix: str):
     """Load configs, resolve the log directory, and initialize the run logger.
 

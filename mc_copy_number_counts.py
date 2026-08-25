@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 from alignment.aliquot_db_validator import run_aliquot_db_validation
 from utils.common import (
     get_project_root, send_status_email, load_configs, initialize_run,
-    resolve_csv_write_encoding, csv_bom_enabled,
+    resolve_csv_write_encoding, csv_bom_enabled, resolve_studies_dir, config_subfolder,
 )
 from utils.configuration import ConfigData
 from utils.issue_collector import FileRecord, CapturingLogHandler
@@ -213,13 +213,12 @@ def run_counts(logger, file_records: list = None, main_cfg: ConfigData = None, l
     if main_cfg is None or loc_cfg is None:
         main_cfg, loc_cfg = load_configs(project_root)
 
-    studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
+    studies_dir = resolve_studies_dir(loc_cfg)
     if not studies_dir:
         logger.error('Location/mitCopyN_studies_dir is not set in location_config.yaml. Aborting.')
         return
 
-    studies_dir = Path(studies_dir)
-    processed_data_dir = studies_dir / (main_cfg.get_value('Counts/processed_data_dir') or 'processed_data')
+    processed_data_dir = studies_dir / config_subfolder(main_cfg, 'Counts/processed_data_dir', 'processed_data')
     output_path_depth = int(main_cfg.get_value('Counts/output_path_depth') or 1)
 
     schema_fields: dict = main_cfg.get_value('Alligned_file_schema/fields') or {}

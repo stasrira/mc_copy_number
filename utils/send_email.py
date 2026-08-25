@@ -1,6 +1,8 @@
 import os
 import yagmail
 
+DEFAULT_SMTP_PORT = 25  # well-known plaintext SMTP port
+
 
 def send_email(emails_to, subject, message, email_from=None, attachment_path=None, smtp_server=None, smtp_server_port=None):
     """Send email using yagmail with SMTP settings from environment variables.
@@ -20,7 +22,7 @@ def send_email(emails_to, subject, message, email_from=None, attachment_path=Non
         if port_str and port_str.isnumeric():
             smtp_server_port = int(port_str)
         else:
-            smtp_server_port = 25
+            smtp_server_port = DEFAULT_SMTP_PORT
 
     yag = yagmail.SMTP(
         email_from,

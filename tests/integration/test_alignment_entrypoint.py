@@ -225,6 +225,56 @@ class TestRunAlignment:
         assert records[0].db_validation_ok is False
         assert any('DB validation failed' in rec.message for rec in caplog.records)
 
+    def test_missing_columns_config_is_reported_as_error_and_moves_to_reprocess(
+        self, tmp_path, build_project_root, add_provider_config, monkeypatch, logger,
+    ):
+        """Column mapping (extraction.columns) is required and can't be guessed — confirm a
+        provider config missing it surfaces as a record error (i.e. reaches the status email)
+        rather than crashing the whole run, and the source file is routed to reprocess/."""
+        root, studies_dir = build_project_root()
+        broken_extraction_cfg = {**EXTRACTION_CFG, 'columns': {}}
+        add_provider_config(root, 'ProviderA', extraction_cfg=broken_extraction_cfg)
+        ready_dir = studies_dir / 'runFolders' / 'ProviderA' / 'ready'
+        _write_xlsx(ready_dir / 'foo.xlsx', [
+            ('Biospecimen ID', 'mean', 'SE'),
+            ('A1', 1.23, 0.05),
+        ])
+        self._patch_root(monkeypatch, root)
+
+        records = run_alignment(logger)
+
+        assert len(records) == 1
+        record = records[0]
+        assert record.alignment_ok is False
+        assert any('No columns defined' in e for e in record.errors)
+        assert (studies_dir / 'runFolders' / 'ProviderA' / 'work' / 'foo.xlsx').exists()
+        assert not (studies_dir / 'runFolders' / 'ProviderA' / 'processed' / 'foo.xlsx').exists()
+
+    def test_missing_header_row_config_is_reported_as_warning_but_still_processes(
+        self, tmp_path, build_project_root, add_provider_config, monkeypatch, logger,
+    ):
+        """A provider config omitting header_row must still process the file (using the row-1
+        default) while surfacing a warning on the record — i.e. visible in the status email —
+        that names the specific provider missing the setting."""
+        root, studies_dir = build_project_root()
+        extraction_cfg_no_header_row = {k: v for k, v in EXTRACTION_CFG.items() if k != 'header_row'}
+        add_provider_config(root, 'ProviderA', extraction_cfg=extraction_cfg_no_header_row)
+        ready_dir = studies_dir / 'runFolders' / 'ProviderA' / 'ready'
+        _write_xlsx(ready_dir / 'foo.xlsx', [
+            ('Biospecimen ID', 'mean', 'SE'),
+            ('A1', 1.23, 0.05),
+        ])
+        self._patch_root(monkeypatch, root)
+
+        records = run_alignment(logger)
+
+        assert len(records) == 1
+        record = records[0]
+        assert record.alignment_ok is True
+        assert record.aliquots == ['A1']
+        assert any('Provider "ProviderA"' in w and 'missing "header_row"' in w for w in record.warnings)
+        assert (studies_dir / 'runFolders' / 'ProviderA' / 'processed' / 'foo.xlsx').exists()
+
 
 class TestMain:
     def _stub_initialize_run(self, monkeypatch, main_cfg):

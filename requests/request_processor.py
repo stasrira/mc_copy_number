@@ -144,10 +144,11 @@ def _parse_request_file(file_path: Path, main_cfg: ConfigData, logger) -> tuple[
 
     entries = []
     for idx, row in df.iterrows():
-        # pandas uses 0-based index; row 1 in Excel is index 0
-        excel_row = int(idx) + 2
+        # 1-based data row number, not counting the header row (pandas' idx is 0-based and
+        # already excludes the header, so the first data row is row 1, not Excel's row 2).
+        data_row = int(idx) + 1
         entries.append({
-            'row_number': excel_row,
+            'row_number': data_row,
             'raw_data_source': str(row.get('raw_data_source', '')).strip() if pd.notna(row.get('raw_data_source')) else '',
             'program_code': str(row.get('program_code', '')).strip() if pd.notna(row.get('program_code')) else '',
             'skip_aliquot_validation': _parse_bool(row.get('skip_aliquot_validation')),

@@ -110,7 +110,7 @@ class TestSendStatusEmail:
         main_cfg = make_config(EMAIL_CFG)
         send_status_email(logger, [_successful_record()], '/logs/run.log', main_cfg)
         body = captured_emails[0]['body']
-        assert 'Request entry row' not in body
+        assert 'Data entry row' not in body
         assert 'Request Raw data source' not in body
 
     def test_multiple_file_sections_are_separated_and_ordered(self, make_config, captured_emails, logger):
@@ -205,7 +205,7 @@ class TestSendRequestStatusEmail:
         main_cfg = make_config(EMAIL_CFG)
         send_request_status_email(logger, record, '/logs/run.log', main_cfg)
         body = captured_emails[0]['body']
-        assert '<b>Request entry row:</b> 2' in body
+        assert '<b>Data entry row:</b> 2' in body
         assert '<b>Request Raw data source:</b> foo/foo.csv' in body
 
     def test_multiple_entry_sections_are_separated_and_ordered(self, make_config, captured_emails, logger):
@@ -232,14 +232,14 @@ class TestSendRequestStatusEmail:
         preamble, section_1, section_2 = _sections(body)
         assert 'one.csv' not in preamble and 'two.csv' not in preamble
 
-        assert 'Request entry row:</b> 1' in section_1
+        assert 'Data entry row:</b> 1' in section_1
         assert 'one/one.csv' in section_1
         assert 'Entry one error.' in section_1
         assert 'two/two.csv' not in section_1
         assert 'Entry two warning.' not in section_1
         assert 'PROG_X' not in section_1
 
-        assert 'Request entry row:</b> 2' in section_2
+        assert 'Data entry row:</b> 2' in section_2
         assert 'two/two.csv' in section_2
         assert 'Entry two warning.' in section_2
         assert 'PROG_X' in section_2

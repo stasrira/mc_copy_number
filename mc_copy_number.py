@@ -1,7 +1,9 @@
+import os
+
+from dotenv import load_dotenv
+
 from utils.common import send_status_email, initialize_run
 import utils.global_const as gc
-from dotenv import load_dotenv
-import os
 
 load_dotenv()
 

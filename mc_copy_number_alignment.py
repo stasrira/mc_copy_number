@@ -9,8 +9,10 @@ destination directory.
 """
 
 import os
+import traceback
 from pathlib import Path
 
+import pandas as pd
 from dotenv import load_dotenv
 
 from alignment.aliquot_db_validator import run_aliquot_db_validation
@@ -156,7 +158,6 @@ def run_alignment(logger):
                     # Extract aliquot IDs from the aligned CSV
                     aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
                     try:
-                        import pandas as pd
                         df = pd.read_csv(out_path, encoding='utf-8-sig')
                         if aliquot_col in df.columns:
                             record.aliquots = df[aliquot_col].astype(str).tolist()
@@ -207,7 +208,6 @@ def main():
         for r in file_records:
             r.counts_ran = False
     except Exception:
-        import traceback
         logger.critical('Unexpected error during alignment:\n' + traceback.format_exc())
 
     send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg,

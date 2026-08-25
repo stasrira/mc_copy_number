@@ -21,9 +21,9 @@ python mc_copy_number_counts.py --input_dir path/to/dir            # same, dir m
 python mc_copy_number_requests.py     # process ad-hoc request files (re-run counts for existing raw_data CSVs)
 ```
 
-Setup: `pip install -r requirements.txt`, copy `.env` (SMTP + `MC_DB_*` DB credentials) and create
-`configs/location_config.yaml` from `configs/location_config_example.yaml` (git-ignored — it holds
-machine-specific absolute paths).
+Setup: `pip install -r requirements.txt`, create `.env` from `.env.example` (SMTP + `MC_DB_*` DB
+credentials) and `configs/location_config.yaml` from `configs/location_config_example.yaml`
+(both git-ignored — they hold machine-specific secrets/absolute paths).
 
 Tests: `pip install -r requirements-dev.txt`, then `pytest`. Tests live under `tests/unit/` and
 `tests/integration/` (see `IGNORE__temp/test_plan.md` for the full test plan and rollout order).
@@ -110,7 +110,8 @@ in the status email rather than a warning per file.
   from `configs/location_config_example.yaml` per environment.
 - `configs/providers/<ProviderName>/provider_config.yaml` — one per data provider, auto-discovered
   by folder; defines the provider's source folder name, file pattern, and Excel extraction layout.
-- `.env` — SMTP settings and `MC_DB_*` DB credentials, loaded via `python-dotenv`. `ConfigData`
+- `.env` — **not** checked into git; SMTP settings and `MC_DB_*` DB credentials, loaded via
+  `python-dotenv`. Copy from `.env.example` per environment. `ConfigData`
   (`utils/configuration.py`) resolves dotted paths like `Alignment/allow_multiple_programs` against
   a parsed YAML dict; `get_value` returns `None` silently for any missing key/path.
 - `db/db_connection.py`'s `MetadataDB._build_conn_str` builds the ODBC connection string by taking

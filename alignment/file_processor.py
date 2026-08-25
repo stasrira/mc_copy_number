@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from providers.base_provider import BaseProvider
-from utils.common import claim_file, resolve_csv_write_encoding
+from utils.common import claim_file, resolve_csv_write_encoding, unique_dest_path
 
 
 class AlignmentFileProcessor:
@@ -29,26 +29,6 @@ class AlignmentFileProcessor:
         self.logger = logger
         self.schema_map = schema_map or {}
         self.enable_utf8_bom = enable_utf8_bom
-
-    @staticmethod
-    def _unique_dest_path(dest_dir: Path, file_name: str) -> Path:
-        """Return a destination path that does not conflict with existing files.
-
-        If dest_dir/file_name already exists, appends "(n)" before the suffix,
-        incrementing n from 1 until a free name is found.
-        E.g. "file.xlsx" → "file(1).xlsx" → "file(2).xlsx" …
-        """
-        candidate = dest_dir / file_name
-        if not candidate.exists():
-            return candidate
-        stem = Path(file_name).stem
-        suffix = Path(file_name).suffix
-        n = 1
-        while True:
-            candidate = dest_dir / f'{stem}({n}){suffix}'
-            if not candidate.exists():
-                return candidate
-            n += 1
 
     def process_file(self, file_path: Path, temp_processing_dir: Path, processed_dir: Path,
                      reprocess_dir: Path) -> Path | None:
@@ -79,7 +59,7 @@ class AlignmentFileProcessor:
                     f'(check header mismatch warnings above). Moving to reprocess folder.'
                 )
                 os.makedirs(reprocess_dir, exist_ok=True)
-                reprocess_file_path = self._unique_dest_path(reprocess_dir, file_name)
+                reprocess_file_path = unique_dest_path(reprocess_dir, file_name)
                 shutil.move(str(temp_file_path), str(reprocess_file_path))
                 self.logger.warning(
                     f'[{self.provider.name}] Moved "{file_name}" to reprocess folder: "{reprocess_file_path}"'
@@ -124,7 +104,7 @@ class AlignmentFileProcessor:
 
             # --- Step 5: move source to processed ---
             os.makedirs(processed_dir, exist_ok=True)
-            processed_file_path = self._unique_dest_path(processed_dir, file_name)
+            processed_file_path = unique_dest_path(processed_dir, file_name)
             shutil.move(str(temp_file_path), str(processed_file_path))
             self.logger.info(
                 f'[{self.provider.name}] Moved source → processed: "{processed_file_path.name}"'
@@ -140,7 +120,7 @@ class AlignmentFileProcessor:
             # Move file to reprocess/ for manual intervention
             try:
                 os.makedirs(reprocess_dir, exist_ok=True)
-                reprocess_file_path = self._unique_dest_path(reprocess_dir, file_name)
+                reprocess_file_path = unique_dest_path(reprocess_dir, file_name)
                 shutil.move(str(temp_file_path), str(reprocess_file_path))
                 self.logger.warning(
                     f'[{self.provider.name}] Moved "{file_name}" to reprocess folder: "{reprocess_file_path}"'

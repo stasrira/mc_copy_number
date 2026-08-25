@@ -12,9 +12,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from alignment.file_processor import AlignmentFileProcessor
 from mc_copy_number_counts import process_counts_input
-from utils.common import claim_file
+from utils.common import claim_file, unique_dest_path
 from utils.configuration import ConfigData
 from utils.issue_collector import RequestRecord, RequestEntryRecord, CapturingLogHandler
 import utils.global_const as gc
@@ -60,7 +59,7 @@ def _complete_request_file(temp_file_path: Path, dest_dir: Path, logger) -> Path
     """
     try:
         os.makedirs(dest_dir, exist_ok=True)
-        final_path = AlignmentFileProcessor._unique_dest_path(dest_dir, temp_file_path.name)
+        final_path = unique_dest_path(dest_dir, temp_file_path.name)
         shutil.move(str(temp_file_path), str(final_path))
         return final_path
     except Exception:

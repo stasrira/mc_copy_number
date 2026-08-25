@@ -161,6 +161,29 @@ def claim_file(file_path: Path, temp_dir: Path, logger, log_label: str = '') -> 
         return None
 
 
+def unique_dest_path(dest_dir: Path, file_name: str) -> Path:
+    """Return a destination path that does not conflict with existing files.
+
+    If dest_dir/file_name already exists, appends "(n)" before the suffix, incrementing n from 1
+    until a free name is found. E.g. "file.xlsx" -> "file(1).xlsx" -> "file(2).xlsx" ...
+
+    Used alongside :func:`claim_file` when completing the folder lifecycle pattern (moving a
+    claimed file out to its final processed/reprocess destination) by both the alignment file
+    processor and the request-file processor.
+    """
+    candidate = dest_dir / file_name
+    if not candidate.exists():
+        return candidate
+    stem = Path(file_name).stem
+    suffix = Path(file_name).suffix
+    n = 1
+    while True:
+        candidate = dest_dir / f'{stem}({n}){suffix}'
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
 def populate_email_template(template_name: str, template_feeder: dict, templates_dir: Path) -> str:
     """Render a Jinja2 template from templates_dir with template_feeder exposed as 'process'."""
     file_loader = FileSystemLoader(str(templates_dir))

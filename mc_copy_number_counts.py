@@ -20,9 +20,10 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
+from alignment.aliquot_db_validator import run_aliquot_db_validation
 from utils.common import (
     get_project_root, send_status_email, load_configs, initialize_run,
-    resolve_csv_write_encoding, csv_bom_enabled,
+    resolve_csv_write_encoding, csv_bom_enabled, resolve_studies_dir, config_subfolder,
 )
 from utils.configuration import ConfigData
 from utils.issue_collector import FileRecord, CapturingLogHandler
@@ -95,30 +96,6 @@ def extract_aliquots_from_csv(df: pd.DataFrame, aliquot_col: str = 'aliquot_id')
     if aliquot_col not in df.columns:
         return []
     return df[aliquot_col].astype(str).tolist()
-
-
-def run_aliquot_db_validation(record, main_cfg, logger) -> bool:
-    """Run DB aliquot validation for *record* using its already-populated *aliquots* list.
-
-    Sets ``record.db_validation_ok``, ``record.program_groups`` and ``record.program_code``.
-    Validation errors are logged and captured into ``record.errors`` via the logger.
-    :returns: True on success, False on failure.
-    """
-    from alignment.aliquot_db_validator import validate_aliquots
-
-    allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
-    logger.info(f'Validating {len(record.aliquots)} aliquot(s) against DB.')
-    ok, program_groups, val_errors = validate_aliquots(
-        record.aliquots, main_cfg, logger, allow_multiple_programs=allow_multiple
-    )
-    record.db_validation_ok = ok
-    record.program_groups = program_groups or {}
-    record.program_code = (
-        next(iter(program_groups)) if program_groups and len(program_groups) == 1 else None
-    )
-    for err in val_errors:
-        logger.error(err)
-    return ok
 
 
 def _process_one_file(csv_path: Path, processed_data_dir: Path,
@@ -236,13 +213,12 @@ def run_counts(logger, file_records: list = None, main_cfg: ConfigData = None, l
     if main_cfg is None or loc_cfg is None:
         main_cfg, loc_cfg = load_configs(project_root)
 
-    studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
+    studies_dir = resolve_studies_dir(loc_cfg)
     if not studies_dir:
         logger.error('Location/mitCopyN_studies_dir is not set in location_config.yaml. Aborting.')
         return
 
-    studies_dir = Path(studies_dir)
-    processed_data_dir = studies_dir / (main_cfg.get_value('Counts/processed_data_dir') or 'processed_data')
+    processed_data_dir = studies_dir / config_subfolder(main_cfg, 'Counts/processed_data_dir', gc.DEFAULT_PROCESSED_DATA_DIR)
     output_path_depth = int(main_cfg.get_value('Counts/output_path_depth') or 1)
 
     schema_fields: dict = main_cfg.get_value('Alligned_file_schema/fields') or {}

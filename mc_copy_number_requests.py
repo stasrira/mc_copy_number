@@ -47,7 +47,7 @@ def main():
         logger.info('=== MC Copy Number Requests processing finished ===')
         return
 
-    logger.info('Discovered {} request file(s): {}'.format(len(request_files), ','.join([file_path.name for file_path in request_files])))
+    logger.info(f'Discovered {len(request_files)} request file(s): {", ".join(f.name for f in request_files)}')
 
     for file_path in request_files:
         request_record = process_request_file(file_path, main_cfg, loc_cfg, logger, dirs)

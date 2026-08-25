@@ -9,13 +9,19 @@ destination directory.
 """
 
 import os
+import traceback
 from pathlib import Path
 
+import pandas as pd
 from dotenv import load_dotenv
 
+from alignment.aliquot_db_validator import run_aliquot_db_validation
 from alignment.file_processor import AlignmentFileProcessor
 from providers.provider_factory import create_provider
-from utils.common import get_project_root, send_status_email, load_configs, initialize_run, csv_bom_enabled
+from utils.common import (
+    get_project_root, send_status_email, load_configs, initialize_run, csv_bom_enabled,
+    resolve_studies_dir, config_subfolder,
+)
 from utils.configuration import ConfigData
 from utils.issue_collector import FileRecord, CapturingLogHandler
 import utils.global_const as gc
@@ -59,20 +65,21 @@ def run_alignment(logger):
     main_cfg, loc_cfg = load_configs(project_root)
 
     # Resolve study root directory
-    studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
+    studies_dir = resolve_studies_dir(loc_cfg)
     if not studies_dir:
         logger.error('Location/mitCopyN_studies_dir is not set in location_config.yaml. Aborting.')
         return []
 
-    studies_dir = Path(studies_dir)
-    run_folders_dir = studies_dir / (main_cfg.get_value('Alignment/run_folders_dir') or 'runFolders')
-    raw_data_dir = studies_dir / (main_cfg.get_value('Alignment/raw_data_dir') or 'raw_data')
-    ready_subfolder = main_cfg.get_value('Alignment/ready_subfolder') or 'ready'
-    temp_subfolder = main_cfg.get_value('Alignment/processing_temp_subfolder') or 'temp_processing'
-    processed_subfolder = main_cfg.get_value('Alignment/processed_subfolder') or 'processed'
-    reprocess_subfolder = main_cfg.get_value('Alignment/reprocess_subfolder') or 'reprocess'
+    run_folders_dir = studies_dir / config_subfolder(main_cfg, 'Alignment/run_folders_dir', gc.DEFAULT_RUN_FOLDERS_DIR)
+    raw_data_dir = studies_dir / config_subfolder(main_cfg, 'Alignment/raw_data_dir', gc.DEFAULT_RAW_DATA_DIR)
+    ready_subfolder = config_subfolder(main_cfg, 'Alignment/ready_subfolder', gc.DEFAULT_ALIGNMENT_READY_SUBFOLDER)
+    temp_subfolder = config_subfolder(
+        main_cfg, 'Alignment/processing_temp_subfolder', gc.DEFAULT_ALIGNMENT_PROCESSING_TEMP_SUBFOLDER
+    )
+    processed_subfolder = config_subfolder(main_cfg, 'Alignment/processed_subfolder', gc.DEFAULT_ALIGNMENT_PROCESSED_SUBFOLDER)
+    reprocess_subfolder = config_subfolder(main_cfg, 'Alignment/reprocess_subfolder', gc.DEFAULT_ALIGNMENT_REPROCESS_SUBFOLDER)
 
-    providers_config_dir_rel = main_cfg.get_value('Alignment/providers_config_dir') or gc.CONFIG_DIR_PROVIDERS
+    providers_config_dir_rel = config_subfolder(main_cfg, 'Alignment/providers_config_dir', gc.CONFIG_DIR_PROVIDERS)
     providers_config_dir = project_root / providers_config_dir_rel
 
     enable_utf8_bom = csv_bom_enabled(main_cfg)
@@ -151,7 +158,6 @@ def run_alignment(logger):
                     # Extract aliquot IDs from the aligned CSV
                     aliquot_col = schema_fields.get('aliquot_id', 'aliquot_id')
                     try:
-                        import pandas as pd
                         df = pd.read_csv(out_path, encoding='utf-8-sig')
                         if aliquot_col in df.columns:
                             record.aliquots = df[aliquot_col].astype(str).tolist()
@@ -165,19 +171,9 @@ def run_alignment(logger):
                     )
                     record.db_validation_skipped = not run_db_validation
                     if run_db_validation:
-                        allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
-                        logger.info(f'[{provider_name}] Validating {len(record.aliquots)} aliquot(s) against DB.')
-                        from alignment.aliquot_db_validator import validate_aliquots
-                        ok, program_groups, val_errors = validate_aliquots(
-                            record.aliquots, main_cfg, logger, allow_multiple_programs=allow_multiple
+                        ok = run_aliquot_db_validation(
+                            record, main_cfg, logger, log_prefix=f'[{provider_name}] '
                         )
-                        record.db_validation_ok = ok
-                        record.program_groups = program_groups or {}
-                        record.program_code = (
-                            next(iter(program_groups)) if program_groups and len(program_groups) == 1 else None
-                        )
-                        for err in val_errors:
-                            logger.error(f'[{provider_name}] {err}')
                         if not ok:
                             logger.error(
                                 f'[{provider_name}] Aliquot DB validation failed for '
@@ -212,7 +208,6 @@ def main():
         for r in file_records:
             r.counts_ran = False
     except Exception:
-        import traceback
         logger.critical('Unexpected error during alignment:\n' + traceback.format_exc())
 
     send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg,

@@ -5,6 +5,11 @@ from pathlib import Path
 
 from providers.base_provider import BaseProvider
 
+# Fallback when a provider config's extraction block omits header_row: assume the header is on
+# the first row. Unlike header_row, data_start_row's fallback (header_row + 1) has no separate
+# constant — it's inherently derived from whatever header_row resolves to.
+DEFAULT_HEADER_ROW_1IDX = 1
+
 
 class ExcelProvider(BaseProvider):
     """Provider that extracts data from Excel files using column-index-based config.
@@ -24,8 +29,27 @@ class ExcelProvider(BaseProvider):
             raise ValueError(f'[{self.name}] Missing "extraction" section in provider config.')
 
         sheet_name = extraction_cfg.get('sheet_name')  # None → active sheet
-        header_row_1idx = int(extraction_cfg.get('header_row', 3))
-        data_start_row_1idx = int(extraction_cfg.get('data_start_row', header_row_1idx + 1))
+
+        header_row_cfg = extraction_cfg.get('header_row')
+        if header_row_cfg is None:
+            header_row_1idx = DEFAULT_HEADER_ROW_1IDX
+            self.logger.warning(
+                f'Provider "{self.name}" config is missing "header_row" in its extraction block; '
+                f'defaulting to row {DEFAULT_HEADER_ROW_1IDX}.'
+            )
+        else:
+            header_row_1idx = int(header_row_cfg)
+
+        data_start_row_cfg = extraction_cfg.get('data_start_row')
+        if data_start_row_cfg is None:
+            data_start_row_1idx = header_row_1idx + 1
+            self.logger.warning(
+                f'Provider "{self.name}" config is missing "data_start_row" in its extraction block; '
+                f'defaulting to header_row + 1 = {data_start_row_1idx}.'
+            )
+        else:
+            data_start_row_1idx = int(data_start_row_cfg)
+
         data_end_strategy = extraction_cfg.get('data_end_strategy', 'first_empty')
         data_end_anchor = extraction_cfg.get('data_end_anchor_field', None)
         columns_cfg: dict = extraction_cfg.get('columns', {})

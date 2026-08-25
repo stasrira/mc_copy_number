@@ -83,6 +83,28 @@ def resolve_log_dir(loc_cfg: ConfigData, project_root: Path | None = None) -> st
     return log_dir
 
 
+def resolve_studies_dir(loc_cfg: ConfigData) -> Path | None:
+    """Resolve ``Location/mitCopyN_studies_dir`` from location config.
+
+    This directory is required by the alignment, counts and request-processing entry points, each
+    of which reacts differently when it's missing (log-and-abort, raise, or fail silently) — so
+    this only resolves the value; the missing-value branch stays with the caller.
+
+    :returns: the studies directory as a Path, or None if the key is not set.
+    """
+    studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
+    return Path(studies_dir) if studies_dir else None
+
+
+def config_subfolder(cfg: ConfigData, key: str, default: str) -> str:
+    """Resolve a subfolder name from *cfg*, falling back to *default* when unset.
+
+    Centralizes the ``cfg.get_value(key) or default`` idiom repeated throughout the pipeline's
+    folder-lifecycle boilerplate (ready/temp/processed/reprocess subfolder names, output dirs).
+    """
+    return cfg.get_value(key) or default
+
+
 def initialize_run(log_name: str, log_filename_prefix: str):
     """Load configs, resolve the log directory, and initialize the run logger.
 
@@ -128,6 +150,62 @@ def get_environment_variable(var_name):
     return None
 
 
+def claim_file(file_path: Path, temp_dir: Path, logger, log_label: str = '') -> Path | None:
+    """Atomically claim *file_path* by ``os.rename``-ing it into *temp_dir*.
+
+    This is the shared "ready/ -> temp/" claim step of the folder lifecycle pattern (see
+    CLAUDE.md) used by both the alignment file processor and the request-file processor: an
+    atomic rename is how concurrent/repeated runs avoid double-processing the same file.
+    ``FileNotFoundError`` means another process already claimed it; ``PermissionError`` means the
+    file is open elsewhere (e.g. in Excel) — both are expected, transient conditions rather than
+    real errors, so they're logged at WARNING and the file is simply left for a later run.
+
+    :param log_label: optional prefix for log messages, e.g. ``'[ProviderA] '`` or ``'Request file '``.
+    :returns: the claimed path inside *temp_dir* on success, ``None`` on failure (file stays put).
+    """
+    temp_path = temp_dir / file_path.name
+    try:
+        os.makedirs(temp_dir, exist_ok=True)
+        os.rename(file_path, temp_path)
+        logger.info(f'{log_label}Claimed "{file_path.name}" -> "{temp_dir}".')
+        return temp_path
+    except FileNotFoundError:
+        logger.warning(f'{log_label}"{file_path.name}" was already claimed by another process. Skipping.')
+        return None
+    except PermissionError:
+        logger.warning(
+            f'{log_label}"{file_path.name}" is locked by another process (e.g. open in Excel) and cannot '
+            f'be moved. It remains in place and will be attempted again on the next run.'
+        )
+        return None
+    except Exception:
+        logger.error(f'{log_label}Failed to claim "{file_path.name}":\n' + traceback.format_exc())
+        return None
+
+
+def unique_dest_path(dest_dir: Path, file_name: str) -> Path:
+    """Return a destination path that does not conflict with existing files.
+
+    If dest_dir/file_name already exists, appends "(n)" before the suffix, incrementing n from 1
+    until a free name is found. E.g. "file.xlsx" -> "file(1).xlsx" -> "file(2).xlsx" ...
+
+    Used alongside :func:`claim_file` when completing the folder lifecycle pattern (moving a
+    claimed file out to its final processed/reprocess destination) by both the alignment file
+    processor and the request-file processor.
+    """
+    candidate = dest_dir / file_name
+    if not candidate.exists():
+        return candidate
+    stem = Path(file_name).stem
+    suffix = Path(file_name).suffix
+    n = 1
+    while True:
+        candidate = dest_dir / f'{stem}({n}){suffix}'
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
 def populate_email_template(template_name: str, template_feeder: dict, templates_dir: Path) -> str:
     """Render a Jinja2 template from templates_dir with template_feeder exposed as 'process'."""
     file_loader = FileSystemLoader(str(templates_dir))
@@ -168,6 +246,75 @@ def _bom_note(record) -> str | None:
     )
 
 
+def _build_entry_feeder(record) -> dict:
+    """Build the per-file/entry Jinja2 feeder dict shared by the pipeline and request status emails.
+
+    :param record: a FileRecord or RequestEntryRecord (utils/issue_collector.py) — both expose the
+                    same alignment/counts/db-validation attributes rendered by file_status.html.
+    """
+    bom_note = _bom_note(record)
+    return {
+        'source_file':             record.source_file,
+        'provider_name':           record.provider_name,
+        'alignment_ok':            record.alignment_ok,
+        'alignment_ran':           record.alignment_ran,
+        'alignment_output':        str(record.alignment_output) if record.alignment_output else '',
+        'alignment_aliquot_count': record.alignment_aliquot_count,
+        'counts_ok':               record.counts_ok,
+        'counts_ran':              record.counts_ran,
+        'counts_skipped':          record.alignment_output is None,
+        'db_validation_ok':        record.db_validation_ok,
+        'db_validation_skipped':   getattr(record, 'db_validation_skipped', False),
+        'program_code':            record.program_code,
+        'program_groups':          record.program_groups,
+        'counts_outputs':          record.counts_outputs,
+        'launch_param':            record.launch_param,
+        'launch_value':            record.launch_value,
+        'counts_output':           str(record.counts_output) if record.counts_output else '',
+        'counts_aliquot_count':    record.counts_aliquot_count,
+        'aliquots':                record.aliquots,
+        'warnings':                record.warnings + [bom_note] if bom_note else record.warnings,
+        'errors':                  record.errors,
+        'bom_applied_paths':       set(record.bom_applied_paths),
+    }
+
+
+def _split_emails(value: str | None) -> list[str]:
+    """Split a comma-separated env var value into a list of trimmed, non-empty addresses."""
+    if not value:
+        return []
+    return [addr.strip() for addr in value.split(',') if addr.strip()]
+
+
+def _resolve_email_recipients(main_cfg: ConfigData) -> list[str]:
+    """Build the status-email recipient list from ``MC_EMAIL_TO``, optionally extended with
+    ``MC_EMAIL_ADDITIONAL_TO`` when ``Email/include_additional_emails`` is on.
+
+    Recipient addresses live in env vars rather than main_config.yaml since this file is checked
+    into git and email addresses are environment-specific/personal data.
+    """
+    recipients = _split_emails(get_environment_variable('MC_EMAIL_TO'))
+    if main_cfg.get_value('Email/include_additional_emails'):
+        recipients += _split_emails(get_environment_variable('MC_EMAIL_ADDITIONAL_TO'))
+    return recipients
+
+
+def _send_email_if_enabled(logger, main_cfg, subject: str, email_body: str, kind_label: str) -> None:
+    """Send *email_body* via SMTP if ``Email/send_emails`` is on; otherwise just log that it's off.
+
+    :param kind_label: prefix for the log line (e.g. "Status" / "Request status").
+    """
+    if main_cfg.get_value('Email/send_emails'):
+        from utils.send_email import send_email
+
+        email_from = get_environment_variable('MC_EMAIL_FROM')
+        emails_to = _resolve_email_recipients(main_cfg)
+        send_email(emails_to, subject, email_body, email_from=email_from)
+        logger.info(f'{kind_label} email sent to: {emails_to}')
+    else:
+        logger.info(f'{kind_label} email sending is disabled in config.')
+
+
 def send_status_email(logger, file_records, log_filename, main_cfg, subject_prefix: str = None,
                        process_label: str = None):
     """Build and send a processing status email.
@@ -181,38 +328,12 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
                           shown in the email header
     """
     try:
-        from utils.send_email import send_email
-
         project_root = get_project_root()
         templates_dir = project_root / 'templates'
 
         file_sections = []
         for record in file_records:
-            bom_note = _bom_note(record)
-            template_feeder = {
-                'source_file':             record.source_file,
-                'provider_name':           record.provider_name,
-                'alignment_ok':            record.alignment_ok,
-                'alignment_ran':           record.alignment_ran,
-                'alignment_output':        str(record.alignment_output) if record.alignment_output else '',
-                'alignment_aliquot_count': record.alignment_aliquot_count,
-                'counts_ok':               record.counts_ok,
-                'counts_ran':              record.counts_ran,
-                'counts_skipped':          record.alignment_output is None,
-                'db_validation_ok':        record.db_validation_ok,
-                'db_validation_skipped':   getattr(record, 'db_validation_skipped', False),
-                'program_code':            record.program_code,
-                'program_groups':          record.program_groups,
-                'counts_outputs':          record.counts_outputs,
-                'launch_param':            record.launch_param,
-                'launch_value':            record.launch_value,
-                'counts_output':           str(record.counts_output) if record.counts_output else '',
-                'counts_aliquot_count':    record.counts_aliquot_count,
-                'aliquots':                record.aliquots,
-                'warnings':                record.warnings + [bom_note] if bom_note else record.warnings,
-                'errors':                  record.errors,
-                'bom_applied_paths':       set(record.bom_applied_paths),
-            }
+            template_feeder = _build_entry_feeder(record)
             section_html = populate_email_template('file_status.html', template_feeder, templates_dir)
             file_sections.append(section_html)
 
@@ -241,13 +362,7 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
         else:
             subject = f'{prefix} - {len(file_records)} file(s) processed successfully'
 
-        if main_cfg.get_value('Email/send_emails'):
-            email_from = main_cfg.get_value('Email/default_from_email')
-            emails_to = main_cfg.get_value('Email/sent_to_emails')
-            send_email(emails_to, subject, email_body, email_from=email_from)
-            logger.info(f'Status email sent to: {emails_to}')
-        else:
-            logger.info('Status email sending is disabled in config.')
+        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Status')
 
     except Exception:
         logger.error('Failed to send status email:\n' + traceback.format_exc())
@@ -266,44 +381,20 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
                           shown in the email header
     """
     try:
-        from utils.send_email import send_email
-
         project_root = get_project_root()
         templates_dir = project_root / 'templates'
 
         # Render each entry using the existing file_status.html template
         entry_sections = []
         for entry in request_record.entries:
-            bom_note = _bom_note(entry)
-            template_feeder = {
-                'source_file':             entry.source_file,
-                'provider_name':           entry.provider_name,
-                'alignment_ok':            entry.alignment_ok,
-                'alignment_ran':           entry.alignment_ran,
-                'alignment_output':        str(entry.alignment_output) if entry.alignment_output else '',
-                'alignment_aliquot_count': entry.alignment_aliquot_count,
-                'counts_ok':               entry.counts_ok,
-                'counts_ran':              entry.counts_ran,
-                'counts_skipped':          entry.alignment_output is None,
-                'db_validation_ok':        entry.db_validation_ok,
-                'db_validation_skipped':   getattr(entry, 'db_validation_skipped', False),
-                'program_code':            entry.program_code,
-                'program_groups':          entry.program_groups,
-                'counts_outputs':          entry.counts_outputs,
-                'launch_param':            entry.launch_param,
-                'launch_value':            entry.launch_value,
-                'counts_output':           str(entry.counts_output) if entry.counts_output else '',
-                'counts_aliquot_count':    entry.counts_aliquot_count,
-                'aliquots':                entry.aliquots,
-                'warnings':                entry.warnings + [bom_note] if bom_note else entry.warnings,
-                'errors':                  entry.errors,
-                'bom_applied_paths':       set(entry.bom_applied_paths),
+            template_feeder = _build_entry_feeder(entry)
+            template_feeder.update({
                 # Request-specific context for the template
                 'raw_data_source':         getattr(entry, 'raw_data_source', ''),
                 'program_code_override':   getattr(entry, 'program_code_override', ''),
                 'skip_aliquot_validation': getattr(entry, 'skip_aliquot_validation', False),
                 'row_number':              getattr(entry, 'row_number', ''),
-            }
+            })
             section_html = populate_email_template('file_status.html', template_feeder, templates_dir)
             entry_sections.append(section_html)
 
@@ -334,13 +425,7 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
         else:
             subject = f'{prefix} - Request completed successfully - "{Path(request_record.request_file).name}"'
 
-        if main_cfg.get_value('Email/send_emails'):
-            email_from = main_cfg.get_value('Email/default_from_email')
-            emails_to = main_cfg.get_value('Email/sent_to_emails')
-            send_email(emails_to, subject, email_body, email_from=email_from)
-            logger.info(f'Request status email sent to: {emails_to}')
-        else:
-            logger.info('Request status email sending is disabled in config.')
+        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Request status')
 
     except Exception:
         logger.error('Failed to send request status email:\n' + traceback.format_exc())

@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from alignment.file_processor import AlignmentFileProcessor
 from mc_copy_number_counts import process_counts_input
+from utils.common import claim_file, config_subfolder, resolve_studies_dir, unique_dest_path
 from utils.configuration import ConfigData
 from utils.issue_collector import RequestRecord, RequestEntryRecord, CapturingLogHandler
 import utils.global_const as gc
@@ -27,14 +27,14 @@ def _resolve_requests_dirs(loc_cfg: ConfigData, main_cfg: ConfigData, project_ro
     requests_dir = Path(requests_dir)
 
     def subfolder(key: str, default: str) -> Path:
-        return requests_dir / (main_cfg.get_value(f'Requests/{key}') or default)
+        return requests_dir / config_subfolder(main_cfg, f'Requests/{key}', default)
 
     return {
         'requests_dir': requests_dir,
-        'ready': subfolder('ready_subfolder', 'ready'),
-        'processing_temp': subfolder('processing_temp_subfolder', 'processing_temp'),
-        'processed': subfolder('processed_subfolder', 'processed'),
-        'work': subfolder('reprocess_subfolder', 'work'),
+        'ready': subfolder('ready_subfolder', gc.DEFAULT_REQUESTS_READY_SUBFOLDER),
+        'processing_temp': subfolder('processing_temp_subfolder', gc.DEFAULT_REQUESTS_PROCESSING_TEMP_SUBFOLDER),
+        'processed': subfolder('processed_subfolder', gc.DEFAULT_REQUESTS_PROCESSED_SUBFOLDER),
+        'work': subfolder('reprocess_subfolder', gc.DEFAULT_REQUESTS_REPROCESS_SUBFOLDER),
     }
 
 
@@ -52,25 +52,6 @@ def _discover_request_files(ready_dir: Path):
     return sorted(f for f in ready_dir.glob('*.xlsx') if not f.name.startswith('~$'))
 
 
-def _claim_request_file(file_path: Path, temp_dir: Path, logger):
-    """Atomically move a request file from ready/ to processing_temp/.
-
-    :returns: Path in processing_temp on success, None on failure.
-    """
-    temp_path = temp_dir / file_path.name
-    try:
-        os.makedirs(temp_dir, exist_ok=True)
-        os.rename(file_path, temp_path)
-        logger.info(f'Claimed request file: "{file_path.name}" -> processing_temp')
-        return temp_path
-    except FileNotFoundError:
-        logger.warning(f'Request file "{file_path.name}" was already claimed by another process. Skipping.')
-        return None
-    except Exception:
-        logger.error(f'Failed to claim request file "{file_path.name}":\n' + traceback.format_exc())
-        return None
-
-
 def _complete_request_file(temp_file_path: Path, dest_dir: Path, logger) -> Path | None:
     """Move a request file from processing_temp/ to the destination folder.
 
@@ -78,7 +59,7 @@ def _complete_request_file(temp_file_path: Path, dest_dir: Path, logger) -> Path
     """
     try:
         os.makedirs(dest_dir, exist_ok=True)
-        final_path = AlignmentFileProcessor._unique_dest_path(dest_dir, temp_file_path.name)
+        final_path = unique_dest_path(dest_dir, temp_file_path.name)
         shutil.move(str(temp_file_path), str(final_path))
         return final_path
     except Exception:
@@ -163,10 +144,11 @@ def _parse_request_file(file_path: Path, main_cfg: ConfigData, logger) -> tuple[
 
     entries = []
     for idx, row in df.iterrows():
-        # pandas uses 0-based index; row 1 in Excel is index 0
-        excel_row = int(idx) + 2
+        # 1-based data row number, not counting the header row (pandas' idx is 0-based and
+        # already excludes the header, so the first data row is row 1, not Excel's row 2).
+        data_row = int(idx) + 1
         entries.append({
-            'row_number': excel_row,
+            'row_number': data_row,
             'raw_data_source': str(row.get('raw_data_source', '')).strip() if pd.notna(row.get('raw_data_source')) else '',
             'program_code': str(row.get('program_code', '')).strip() if pd.notna(row.get('program_code')) else '',
             'skip_aliquot_validation': _parse_bool(row.get('skip_aliquot_validation')),
@@ -183,10 +165,10 @@ def _resolve_allowed_raw_data_root(loc_cfg: ConfigData, main_cfg: ConfigData) ->
     documented as pointing to one of those files. Returns None if the studies directory is not
     configured.
     """
-    studies_dir = loc_cfg.get_value('Location/mitCopyN_studies_dir')
-    if not studies_dir:
+    studies_dir = resolve_studies_dir(loc_cfg)
+    if studies_dir is None:
         return None
-    return Path(studies_dir) / (main_cfg.get_value('Alignment/raw_data_dir') or 'raw_data')
+    return studies_dir / config_subfolder(main_cfg, 'Alignment/raw_data_dir', gc.DEFAULT_RAW_DATA_DIR)
 
 
 def _resolve_raw_data_source(
@@ -333,7 +315,7 @@ def process_request_file(
     logger.info(f'Starting processing of request file: "{file_path.name}"')
 
     # Claim the file
-    temp_file_path = _claim_request_file(file_path, dirs['processing_temp'], logger)
+    temp_file_path = claim_file(file_path, dirs['processing_temp'], logger, log_label='Request file ')
     if temp_file_path is None:
         record.errors.append(f'Failed to claim request file "{file_path.name}".')
         return record

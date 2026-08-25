@@ -65,11 +65,11 @@ class TestParseRequestFile:
 
         assert err is None
         assert len(entries) == 2
-        assert entries[0]['row_number'] == 2
+        assert entries[0]['row_number'] == 1
         assert entries[0]['raw_data_source'] == 'run1/foo.csv'
         assert entries[0]['program_code'] == 'PROG1'
         assert entries[0]['skip_aliquot_validation'] is True
-        assert entries[1]['row_number'] == 3
+        assert entries[1]['row_number'] == 2
         assert entries[1]['program_code'] == ''
         assert entries[1]['skip_aliquot_validation'] is False
 

@@ -130,3 +130,30 @@ def validate_aliquots(
 
     finally:
         db.close()
+
+
+def run_aliquot_db_validation(record, main_cfg, logger, log_prefix: str = '') -> bool:
+    """Validate *record*'s already-populated ``aliquots`` against the DB and wire the result onto it.
+
+    Sets ``record.db_validation_ok``, ``record.program_groups`` and ``record.program_code``, and
+    logs any validation error messages. Shared by the alignment entry point (per-provider loop in
+    mc_copy_number_alignment.py) and the counts entry point (process_counts_input in
+    mc_copy_number_counts.py) — each applies its own gating logic (whether to run validation at
+    all, and what to do on failure) around this shared call/derive/log step.
+
+    :param log_prefix: optional prefix prepended to log lines (e.g. ``"[ProviderName] "``).
+    :returns: True on success, False on failure.
+    """
+    allow_multiple = bool(main_cfg.get_value('Alignment/allow_multiple_programs'))
+    logger.info(f'{log_prefix}Validating {len(record.aliquots)} aliquot(s) against DB.')
+    ok, program_groups, val_errors = validate_aliquots(
+        record.aliquots, main_cfg, logger, allow_multiple_programs=allow_multiple
+    )
+    record.db_validation_ok = ok
+    record.program_groups = program_groups or {}
+    record.program_code = (
+        next(iter(program_groups)) if program_groups and len(program_groups) == 1 else None
+    )
+    for err in val_errors:
+        logger.error(f'{log_prefix}{err}')
+    return ok

@@ -1,5 +1,7 @@
 Location:
     # Absolute path to the root directory for mitCopyN studies data
     mitCopyN_studies_dir: /path/to/your/mitCopyN_studies
+    # Absolute path to the root directory for request files
+    requests_dir: /path/to/your/requests
     # Path to the folder where log files will be stored; relative to the project root if not absolute
     logs: logs

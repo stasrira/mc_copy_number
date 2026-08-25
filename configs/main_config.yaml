@@ -19,14 +19,17 @@ Database:
         env_db_user_name: MC_DB_USER_NAME
         env_db_user_pwd: MC_DB_USER_PWD
 
-# Email settings for status reports
+# Email settings for status reports. Sender/recipient addresses live in .env
+# (MC_EMAIL_FROM, MC_EMAIL_TO, MC_EMAIL_ADDITIONAL_TO) rather than here, since this file is
+# checked into git and email addresses are environment-specific/personal data.
 Email:
     send_emails: True
-    default_from_email: stas.rirak@mssm.edu
-    sent_to_emails: ['stasrirak.ms@gmail.com', 'stas.rirak@mssm.edu']
     # Common prefix used in every status email subject line.
     # Change here to rename the application across all email subjects.
     email_subject_prefix: 'Mitochondrial Copy Number Processing'
+    # When True, status emails are also sent to the address(es) in MC_EMAIL_ADDITIONAL_TO (.env),
+    # in addition to MC_EMAIL_TO. Defaults to False when unset.
+    include_additional_emails: True
 
 # Canonical output column names for the standardized alignment CSV.
 # Provider configs reference fields by their schema key (the left-hand side).

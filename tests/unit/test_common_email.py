@@ -1,14 +1,24 @@
-from utils.common import _bom_note, send_request_status_email, send_status_email
+import pytest
+
+from utils.common import _bom_note, _split_emails, send_request_status_email, send_status_email
 from utils.issue_collector import FileRecord, RequestEntryRecord, RequestRecord
 
 EMAIL_CFG = {
     'Email': {
         'send_emails': True,
-        'default_from_email': 'sender@example.org',
-        'sent_to_emails': ['recipient@example.org'],
         'email_subject_prefix': 'MC Copy Number',
     }
 }
+
+
+@pytest.fixture(autouse=True)
+def _email_env(monkeypatch):
+    """Recipient addresses now come from env vars (see utils.common._resolve_email_recipients),
+    not main_config.yaml — set deterministic values for every test in this module regardless of
+    what a real local .env might contain."""
+    monkeypatch.setenv('MC_EMAIL_FROM', 'sender@example.org')
+    monkeypatch.setenv('MC_EMAIL_TO', 'recipient@example.org')
+    monkeypatch.delenv('MC_EMAIL_ADDITIONAL_TO', raising=False)
 
 # Both pipeline_status.html and request_status.html join per-file/entry sections with this exact
 # separator (see templates); splitting a rendered body on it isolates one section from the next.
@@ -247,3 +257,70 @@ class TestSendRequestStatusEmail:
         assert 'Entry one error.' not in section_2
 
         assert body.index('one/one.csv') < body.index('two/two.csv')
+
+
+class TestSplitEmails:
+    def test_none_returns_empty_list(self):
+        assert _split_emails(None) == []
+
+    def test_empty_string_returns_empty_list(self):
+        assert _split_emails('') == []
+
+    def test_single_address(self):
+        assert _split_emails('a@example.org') == ['a@example.org']
+
+    def test_multiple_addresses_split_and_trimmed(self):
+        assert _split_emails('a@example.org, b@example.org ,c@example.org') == [
+            'a@example.org', 'b@example.org', 'c@example.org',
+        ]
+
+    def test_stray_commas_produce_no_blank_entries(self):
+        assert _split_emails('a@example.org,,  ,b@example.org') == ['a@example.org', 'b@example.org']
+
+
+class TestAdditionalEmails:
+    def test_excluded_by_default(self, make_config, captured_emails, logger, monkeypatch):
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
+        main_cfg = make_config(EMAIL_CFG)  # include_additional_emails unset -> defaults to False
+
+        send_status_email(logger, [], '/logs/run.log', main_cfg)
+
+        assert captured_emails[0]['to'] == ['recipient@example.org']
+
+    def test_included_when_enabled(self, make_config, captured_emails, logger, monkeypatch):
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+
+        send_status_email(logger, [], '/logs/run.log', main_cfg)
+
+        assert captured_emails[0]['to'] == ['recipient@example.org', 'extra@example.org']
+
+    def test_enabled_but_env_var_unset_adds_nothing(self, make_config, captured_emails, logger):
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+
+        send_status_email(logger, [], '/logs/run.log', main_cfg)
+
+        assert captured_emails[0]['to'] == ['recipient@example.org']
+
+    def test_multiple_additional_recipients_are_included(self, make_config, captured_emails, logger, monkeypatch):
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra1@example.org, extra2@example.org')
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+
+        send_status_email(logger, [], '/logs/run.log', main_cfg)
+
+        assert captured_emails[0]['to'] == [
+            'recipient@example.org', 'extra1@example.org', 'extra2@example.org',
+        ]
+
+    def test_applies_to_request_status_email_too(self, make_config, captured_emails, logger, monkeypatch):
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+        record = RequestRecord('/requests/ready/foo.xlsx')
+
+        send_request_status_email(logger, record, '/logs/run.log', main_cfg)
+
+        assert captured_emails[0]['to'] == ['recipient@example.org', 'extra@example.org']

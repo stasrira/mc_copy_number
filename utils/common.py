@@ -279,6 +279,26 @@ def _build_entry_feeder(record) -> dict:
     }
 
 
+def _split_emails(value: str | None) -> list[str]:
+    """Split a comma-separated env var value into a list of trimmed, non-empty addresses."""
+    if not value:
+        return []
+    return [addr.strip() for addr in value.split(',') if addr.strip()]
+
+
+def _resolve_email_recipients(main_cfg: ConfigData) -> list[str]:
+    """Build the status-email recipient list from ``MC_EMAIL_TO``, optionally extended with
+    ``MC_EMAIL_ADDITIONAL_TO`` when ``Email/include_additional_emails`` is on.
+
+    Recipient addresses live in env vars rather than main_config.yaml since this file is checked
+    into git and email addresses are environment-specific/personal data.
+    """
+    recipients = _split_emails(get_environment_variable('MC_EMAIL_TO'))
+    if main_cfg.get_value('Email/include_additional_emails'):
+        recipients += _split_emails(get_environment_variable('MC_EMAIL_ADDITIONAL_TO'))
+    return recipients
+
+
 def _send_email_if_enabled(logger, main_cfg, subject: str, email_body: str, kind_label: str) -> None:
     """Send *email_body* via SMTP if ``Email/send_emails`` is on; otherwise just log that it's off.
 
@@ -287,8 +307,8 @@ def _send_email_if_enabled(logger, main_cfg, subject: str, email_body: str, kind
     if main_cfg.get_value('Email/send_emails'):
         from utils.send_email import send_email
 
-        email_from = main_cfg.get_value('Email/default_from_email')
-        emails_to = main_cfg.get_value('Email/sent_to_emails')
+        email_from = get_environment_variable('MC_EMAIL_FROM')
+        emails_to = _resolve_email_recipients(main_cfg)
         send_email(emails_to, subject, email_body, email_from=email_from)
         logger.info(f'{kind_label} email sent to: {emails_to}')
     else:

@@ -83,6 +83,17 @@ def resolve_log_dir(loc_cfg: ConfigData, project_root: Path | None = None) -> st
     return log_dir
 
 
+def build_subject_prefix(main_cfg: ConfigData, loc_cfg: ConfigData, process_label: str) -> str:
+    """Build the status-email subject prefix: "[env_name] base_prefix - process_label".
+
+    ``[env_name]`` is taken from ``Location/environment_name`` and included only when set.
+    """
+    base_prefix = main_cfg.get_value('Email/email_subject_prefix') or 'MC Copy Number'
+    env_name = loc_cfg.get_value('Location/environment_name')
+    env_tag = f'[{env_name}] ' if env_name else ''
+    return f'{env_tag}{base_prefix} - {process_label}'
+
+
 def resolve_studies_dir(loc_cfg: ConfigData) -> Path | None:
     """Resolve ``Location/mitCopyN_studies_dir`` from location config.
 

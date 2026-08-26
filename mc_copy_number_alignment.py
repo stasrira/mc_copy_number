@@ -20,7 +20,7 @@ from alignment.file_processor import AlignmentFileProcessor
 from providers.provider_factory import create_provider
 from utils.common import (
     get_project_root, send_status_email, load_configs, initialize_run, csv_bom_enabled,
-    resolve_studies_dir, config_subfolder,
+    resolve_studies_dir, config_subfolder, build_subject_prefix,
 )
 from utils.configuration import ConfigData
 from utils.issue_collector import FileRecord, CapturingLogHandler
@@ -198,6 +198,7 @@ def main():
     run = initialize_run(gc.ALIGNMENT_LOG_NAME, 'alignment')
     logger = run['logger']
     main_cfg = run['main_cfg']
+    loc_cfg = run['loc_cfg']
     log_dir = run['log_dir']
     log_filename = run['log_filename']
 
@@ -211,7 +212,7 @@ def main():
         logger.critical('Unexpected error during alignment:\n' + traceback.format_exc())
 
     send_status_email(logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
-                      subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - {PROCESS_LABEL}',
+                      subject_prefix=build_subject_prefix(main_cfg, loc_cfg, PROCESS_LABEL),
                       process_label=PROCESS_LABEL)
     logger.info('=== MC Copy Number Alignment finished ===')
 

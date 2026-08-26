@@ -21,10 +21,15 @@ def _main_cfg(make_config, allow_automated_counts_processing=True, validate_aliq
     }, filename='main.yaml')
 
 
-def _stub_initialize_run(monkeypatch, main_cfg):
+def _loc_cfg(make_config):
+    return make_config({}, filename='location.yaml')
+
+
+def _stub_initialize_run(monkeypatch, main_cfg, loc_cfg):
     monkeypatch.setattr(mc_copy_number, 'initialize_run', lambda *a, **k: {
         'logger': logging.getLogger('test'),
         'main_cfg': main_cfg,
+        'loc_cfg': loc_cfg,
         'log_dir': '/tmp',
         'log_filename': 'main_test.log',
     })
@@ -55,7 +60,7 @@ def _record(alignment_ok=True, db_validation_ok=True):
 class TestSkipCountsWhenNothingAligned:
     def test_run_counts_never_called(self, make_config, monkeypatch):
         main_cfg = _main_cfg(make_config)
-        _stub_initialize_run(monkeypatch, main_cfg)
+        _stub_initialize_run(monkeypatch, main_cfg, _loc_cfg(make_config))
         records = [_record(alignment_ok=False)]
         _stub_run_alignment(monkeypatch, records)
         sent = _stub_send_status_email(monkeypatch)
@@ -74,7 +79,7 @@ class TestSkipCountsWhenNothingAligned:
 class TestCountsDisabledGlobally:
     def test_counts_skipped_and_all_records_marked_not_ran(self, make_config, monkeypatch):
         main_cfg = _main_cfg(make_config, allow_automated_counts_processing=False)
-        _stub_initialize_run(monkeypatch, main_cfg)
+        _stub_initialize_run(monkeypatch, main_cfg, _loc_cfg(make_config))
         records = [_record(alignment_ok=True), _record(alignment_ok=True)]
         _stub_run_alignment(monkeypatch, records)
         _stub_send_status_email(monkeypatch)
@@ -90,7 +95,7 @@ class TestCountsDisabledGlobally:
 class TestDbValidationPartialFailure:
     def test_only_validated_records_passed_to_run_counts(self, make_config, monkeypatch, caplog):
         main_cfg = _main_cfg(make_config, validate_aliquots_against_db=True)
-        _stub_initialize_run(monkeypatch, main_cfg)
+        _stub_initialize_run(monkeypatch, main_cfg, _loc_cfg(make_config))
         good = _record(alignment_ok=True, db_validation_ok=True)
         bad = _record(alignment_ok=True, db_validation_ok=False)
         records = [good, bad]
@@ -114,7 +119,7 @@ class TestDbValidationPartialFailure:
 class TestDbValidationAllFail:
     def test_run_counts_not_called_at_all(self, make_config, monkeypatch, caplog):
         main_cfg = _main_cfg(make_config, validate_aliquots_against_db=True)
-        _stub_initialize_run(monkeypatch, main_cfg)
+        _stub_initialize_run(monkeypatch, main_cfg, _loc_cfg(make_config))
         records = [_record(alignment_ok=True, db_validation_ok=False)]
         _stub_run_alignment(monkeypatch, records)
         _stub_send_status_email(monkeypatch)
@@ -132,7 +137,7 @@ class TestDbValidationAllFail:
 class TestDbValidationDisabled:
     def test_all_records_passed_through_unfiltered(self, make_config, monkeypatch):
         main_cfg = _main_cfg(make_config, validate_aliquots_against_db=False)
-        _stub_initialize_run(monkeypatch, main_cfg)
+        _stub_initialize_run(monkeypatch, main_cfg, _loc_cfg(make_config))
         records = [_record(alignment_ok=True, db_validation_ok=False), _record(alignment_ok=False)]
         _stub_run_alignment(monkeypatch, records)
         _stub_send_status_email(monkeypatch)
@@ -150,7 +155,7 @@ class TestDbValidationDisabled:
 class TestStatusEmailAlwaysSent:
     def test_sent_exactly_once_per_run(self, make_config, monkeypatch):
         main_cfg = _main_cfg(make_config)
-        _stub_initialize_run(monkeypatch, main_cfg)
+        _stub_initialize_run(monkeypatch, main_cfg, _loc_cfg(make_config))
         _stub_run_alignment(monkeypatch, [])
         send_calls = []
         monkeypatch.setattr(mc_copy_number, 'send_status_email', lambda *a, **k: send_calls.append(1))

@@ -1,6 +1,8 @@
 import pytest
 
-from utils.common import _bom_note, _split_emails, send_request_status_email, send_status_email
+from utils.common import (
+    _bom_note, _split_emails, build_subject_prefix, send_request_status_email, send_status_email,
+)
 from utils.issue_collector import FileRecord, RequestEntryRecord, RequestRecord
 
 EMAIL_CFG = {
@@ -28,6 +30,21 @@ SECTION_SEPARATOR = '----------------------------------------------------'
 def _sections(body: str) -> list[str]:
     """Split a rendered status-email body into [preamble, section_1, section_2, ...]."""
     return body.split(SECTION_SEPARATOR)
+
+
+class TestBuildSubjectPrefix:
+    def test_environment_name_omitted_when_unset(self, make_config):
+        main_cfg = make_config(EMAIL_CFG, filename='main.yaml')
+        loc_cfg = make_config({}, filename='location.yaml')
+        assert build_subject_prefix(main_cfg, loc_cfg, 'Alignment/Counts') == 'MC Copy Number - Alignment/Counts'
+
+    def test_environment_name_prefixed_when_set(self, make_config):
+        main_cfg = make_config(EMAIL_CFG, filename='main.yaml')
+        loc_cfg = make_config({'Location': {'environment_name': 'production'}}, filename='location.yaml')
+        assert (
+            build_subject_prefix(main_cfg, loc_cfg, 'Alignment/Counts')
+            == '[production] MC Copy Number - Alignment/Counts'
+        )
 
 
 def _successful_record():

@@ -2,7 +2,7 @@ import os
 
 from dotenv import load_dotenv
 
-from utils.common import send_status_email, initialize_run
+from utils.common import send_status_email, initialize_run, build_subject_prefix
 import utils.global_const as gc
 
 load_dotenv()
@@ -15,6 +15,7 @@ def main():
     run = initialize_run(gc.MAIN_LOG_NAME, 'mc_copy_number')
     logger = run['logger']
     main_cfg = run['main_cfg']
+    loc_cfg = run['loc_cfg']
     log_dir = run['log_dir']
     log_filename = run['log_filename']
 
@@ -65,7 +66,7 @@ def main():
     # Step 3 - Send status email
     send_status_email(
         logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
-        subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - {PROCESS_LABEL}',
+        subject_prefix=build_subject_prefix(main_cfg, loc_cfg, PROCESS_LABEL),
         process_label=PROCESS_LABEL,
     )
 

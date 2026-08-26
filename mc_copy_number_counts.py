@@ -24,6 +24,7 @@ from alignment.aliquot_db_validator import run_aliquot_db_validation
 from utils.common import (
     get_project_root, send_status_email, load_configs, initialize_run,
     resolve_csv_write_encoding, csv_bom_enabled, resolve_studies_dir, config_subfolder,
+    build_subject_prefix,
 )
 from utils.configuration import ConfigData
 from utils.issue_collector import FileRecord, CapturingLogHandler
@@ -526,7 +527,7 @@ def main():
 
     send_status_email(
         logger, file_records, os.path.join(log_dir, log_filename), main_cfg,
-        subject_prefix=f'{main_cfg.get_value("Email/email_subject_prefix") or "MC Copy Number"} - {PROCESS_LABEL}',
+        subject_prefix=build_subject_prefix(main_cfg, loc_cfg, PROCESS_LABEL),
         process_label=PROCESS_LABEL,
     )
     logger.info('=== MC Copy Number Counts finished ===')

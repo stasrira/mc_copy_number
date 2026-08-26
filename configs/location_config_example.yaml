@@ -5,3 +5,6 @@ Location:
     requests_dir: /path/to/your/requests
     # Path to the folder where log files will be stored; relative to the project root if not absolute
     logs: logs
+    # Optional environment identifier (e.g. "production", "staging"). When set, it's shown as a
+    # "[name]" prefix on status email subjects. Leave unset/blank to omit it entirely.
+    environment_name: production

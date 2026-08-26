@@ -277,10 +277,11 @@ class TestRunAlignment:
 
 
 class TestMain:
-    def _stub_initialize_run(self, monkeypatch, main_cfg):
+    def _stub_initialize_run(self, monkeypatch, main_cfg, loc_cfg):
         monkeypatch.setattr(alignment_module, 'initialize_run', lambda *a, **k: {
             'logger': logging.getLogger('test'),
             'main_cfg': main_cfg,
+            'loc_cfg': loc_cfg,
             'log_dir': '/tmp',
             'log_filename': 'alignment_test.log',
         })
@@ -296,8 +297,9 @@ class TestMain:
         return sent
 
     def test_for_alignment_only_execution_forces_counts_ran_flag_to_false_on_every_record_for_email_template(self, make_config, monkeypatch):
-        main_cfg = make_config({})
-        self._stub_initialize_run(monkeypatch, main_cfg)
+        main_cfg = make_config({}, filename='main.yaml')
+        loc_cfg = make_config({}, filename='location.yaml')
+        self._stub_initialize_run(monkeypatch, main_cfg, loc_cfg)
         fake_records = [FileRecord('a.xlsx', 'ProviderA'), FileRecord('b.xlsx', 'ProviderB')]
         assert all(r.counts_ran is True for r in fake_records)  # sanity: default is True
         monkeypatch.setattr(alignment_module, 'run_alignment', lambda logger: fake_records)
@@ -308,8 +310,9 @@ class TestMain:
         assert all(r.counts_ran is False for r in sent['file_records'])
 
     def test_unexpected_exception_is_caught_and_email_still_sent(self, make_config, monkeypatch):
-        main_cfg = make_config({})
-        self._stub_initialize_run(monkeypatch, main_cfg)
+        main_cfg = make_config({}, filename='main.yaml')
+        loc_cfg = make_config({}, filename='location.yaml')
+        self._stub_initialize_run(monkeypatch, main_cfg, loc_cfg)
 
         def raise_error(logger):
             raise RuntimeError('boom')

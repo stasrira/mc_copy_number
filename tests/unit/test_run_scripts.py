@@ -39,7 +39,12 @@ conda() {
             fi
             ;;
         activate)
-            echo "activate:$2" >> "$FAKE_CONDA_LOG"
+            if [ -n "${FAKE_CONDA_ENVS:-}" ] && echo "${FAKE_CONDA_ENVS%% *}" | grep -Fxq "$2"; then
+                echo "activate:$2" >> "$FAKE_CONDA_LOG"
+            else
+                echo "EnvironmentNameNotFound: could not find conda environment: $2 (environment does not exist)" >&2
+                return 1
+            fi
             ;;
         deactivate)
             echo "deactivate" >> "$FAKE_CONDA_LOG"

@@ -9,12 +9,11 @@ echo "wrk_dir=$script_dir"
 conda_env="python3.12.10_odbc"
 eval "$(conda shell.bash hook)"  # required to run conda activate from a script
 
-if ! conda env list | awk '{print $1}' | grep -Fxq "$conda_env"; then
-    echo "Error: conda environment '$conda_env' does not exist. Create it before running this script." >&2
+if ! activate_err=$(conda activate "$conda_env" 2>&1); then
+    echo "Error: failed to activate conda environment '$conda_env'. Create it before running this script." >&2
+    echo "$activate_err" >&2
     exit 1
 fi
-
-conda activate "$conda_env"
 
 source .venv/bin/activate
 # forwards any CLI args, e.g. --input_file path/to/aligned.csv or --input_dir path/to/dir

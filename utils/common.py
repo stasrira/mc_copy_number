@@ -297,29 +297,38 @@ def _split_emails(value: str | None) -> list[str]:
     return [addr.strip() for addr in value.split(',') if addr.strip()]
 
 
-def _resolve_email_recipients(main_cfg: ConfigData) -> list[str]:
+def _resolve_email_recipients(main_cfg: ConfigData, has_results: bool) -> list[str]:
     """Build the status-email recipient list from ``MC_EMAIL_TO``, optionally extended with
     ``MC_EMAIL_ADDITIONAL_TO`` when ``Email/include_additional_emails`` is on.
+
+    The additional recipients are only added when there was actually something to process
+    (*has_results* — i.e. at least one file/entry was attempted, regardless of whether it
+    succeeded or errored). A run that found nothing to process at all (e.g. an empty ``ready/``
+    folder) goes to the main recipients only, even with ``Email/include_additional_emails`` on —
+    but a run where files were attempted and failed still reaches the additional recipients, since
+    that's exactly the kind of thing they'd want to be aware of.
 
     Recipient addresses live in env vars rather than main_config.yaml since this file is checked
     into git and email addresses are environment-specific/personal data.
     """
     recipients = _split_emails(get_environment_variable('MC_EMAIL_TO'))
-    if main_cfg.get_value('Email/include_additional_emails'):
+    if has_results and main_cfg.get_value('Email/include_additional_emails'):
         recipients += _split_emails(get_environment_variable('MC_EMAIL_ADDITIONAL_TO'))
     return recipients
 
 
-def _send_email_if_enabled(logger, main_cfg, subject: str, email_body: str, kind_label: str) -> None:
+def _send_email_if_enabled(logger, main_cfg, subject: str, email_body: str, kind_label: str,
+                            has_results: bool) -> None:
     """Send *email_body* via SMTP if ``Email/send_emails`` is on; otherwise just log that it's off.
 
     :param kind_label: prefix for the log line (e.g. "Status" / "Request status").
+    :param has_results: whether the run produced any results, per ``_resolve_email_recipients``.
     """
     if main_cfg.get_value('Email/send_emails'):
         from utils.send_email import send_email
 
         email_from = get_environment_variable('MC_EMAIL_FROM')
-        emails_to = _resolve_email_recipients(main_cfg)
+        emails_to = _resolve_email_recipients(main_cfg, has_results)
         send_email(emails_to, subject, email_body, email_from=email_from)
         logger.info(f'{kind_label} email sent to: {emails_to}')
     else:
@@ -373,7 +382,8 @@ def send_status_email(logger, file_records, log_filename, main_cfg, subject_pref
         else:
             subject = f'{prefix} - {len(file_records)} file(s) processed successfully'
 
-        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Status')
+        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Status',
+                                has_results=len(file_records) > 0)
 
     except Exception:
         logger.error('Failed to send status email:\n' + traceback.format_exc())
@@ -436,7 +446,8 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
         else:
             subject = f'{prefix} - Request completed successfully - "{Path(request_record.request_file).name}"'
 
-        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Request status')
+        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Request status',
+                                has_results=len(request_record.entries) > 0)
 
     except Exception:
         logger.error('Failed to send request status email:\n' + traceback.format_exc())

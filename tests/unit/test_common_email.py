@@ -304,12 +304,37 @@ class TestAdditionalEmails:
 
         assert captured_emails[0]['to'] == ['recipient@example.org']
 
-    def test_included_when_enabled(self, make_config, captured_emails, logger, monkeypatch):
+    def test_included_when_enabled_and_results_produced(self, make_config, captured_emails, logger, monkeypatch):
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+
+        send_status_email(logger, [_successful_record()], '/logs/run.log', main_cfg)
+
+        assert captured_emails[0]['to'] == ['recipient@example.org', 'extra@example.org']
+
+    def test_excluded_when_enabled_but_no_results_produced(self, make_config, captured_emails, logger, monkeypatch):
         monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
         cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
         main_cfg = make_config(cfg_data)
 
         send_status_email(logger, [], '/logs/run.log', main_cfg)
+
+        assert captured_emails[0]['to'] == ['recipient@example.org']
+
+    def test_included_when_enabled_even_if_all_files_errored(
+        self, make_config, captured_emails, logger, monkeypatch,
+    ):
+        """A file was attempted but failed — that's still a 'result' (something to be aware of),
+        as opposed to there being nothing to process at all. Additional recipients must still see it."""
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+        failed_record = FileRecord(source_file='/data/foo.xlsx', provider_name='NairLab')
+        failed_record.alignment_ok = False
+        failed_record.errors.append('Aliquot DB validation failed.')
+
+        send_status_email(logger, [failed_record], '/logs/run.log', main_cfg)
 
         assert captured_emails[0]['to'] == ['recipient@example.org', 'extra@example.org']
 
@@ -326,7 +351,7 @@ class TestAdditionalEmails:
         cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
         main_cfg = make_config(cfg_data)
 
-        send_status_email(logger, [], '/logs/run.log', main_cfg)
+        send_status_email(logger, [_successful_record()], '/logs/run.log', main_cfg)
 
         assert captured_emails[0]['to'] == [
             'recipient@example.org', 'extra1@example.org', 'extra2@example.org',
@@ -337,7 +362,23 @@ class TestAdditionalEmails:
         cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
         main_cfg = make_config(cfg_data)
         record = RequestRecord('/requests/ready/foo.xlsx')
+        record.entries = [RequestEntryRecord(
+            source_file='/data/raw_data/foo/foo.csv', provider_name='request', row_number=2,
+            raw_data_source='foo/foo.csv',
+        )]
 
         send_request_status_email(logger, record, '/logs/run.log', main_cfg)
 
         assert captured_emails[0]['to'] == ['recipient@example.org', 'extra@example.org']
+
+    def test_excluded_from_request_status_email_when_no_entries(
+        self, make_config, captured_emails, logger, monkeypatch,
+    ):
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+        record = RequestRecord('/requests/ready/foo.xlsx')
+
+        send_request_status_email(logger, record, '/logs/run.log', main_cfg)
+
+        assert captured_emails[0]['to'] == ['recipient@example.org']

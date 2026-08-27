@@ -51,10 +51,10 @@ No test talks to a real DB or SMTP server — `pyodbc`/`yagmail` are mocked at t
 
 ## Running
 
-There are five entry points, each a self-contained script that loads its own config and sets up
-its own logger. The first four always send their own status email at the end (even on failure);
-the fifth (log cleanup) is housekeeping and only writes to its own log file. Each has a `run_*.sh`
-wrapper that activates the `python3.12.10_odbc` conda environment (failing with a clear error if
+There are five entry points, each a self-contained script that loads its own config, sets up its
+own logger, and always sends its own status email at the end (even on failure) — the fifth (log
+cleanup) is housekeeping rather than part of the pipeline, but still reports what it did by email.
+Each has a `run_*.sh` wrapper that activates the `python3.12.10_odbc` conda environment (failing with a clear error if
 `conda activate` itself fails, e.g. because the environment doesn't exist) and `.venv`, runs the
 corresponding Python script, and cleans up afterwards — this is the wrapper pattern used in
 production.
@@ -118,9 +118,10 @@ separate from the pipeline's own per-run, `run_mc_copy_number_log_cleanup.sh`-ma
 
 - **`run_mc_copy_number_log_cleanup.sh`** → `mc_copy_number_log_cleanup.py` — deletes log files
   under `Location/logs` last modified more than `LogCleanup/retention_days` days ago (see
-  Configuration reference below). Housekeeping only: it isn't part of the pipeline, doesn't send a
-  status email, and just logs what it deleted to its own `log_cleanup_<timestamp>.log`. Meant to
-  run on its own, much less frequent schedule — separate from the two automated entries above:
+  Configuration reference below). Housekeeping, not part of the pipeline, but still sends its own
+  status email listing every file deleted (and any that failed to delete), and logs to its own
+  `log_cleanup_<timestamp>.log`. Meant to run on its own, much less frequent schedule — separate
+  from the two automated entries above:
 
   ```cron
   # Clean up old log files once a week
@@ -183,14 +184,17 @@ python mc_copy_number_log_cleanup.py
   Counts against existing `raw_data` CSVs via an Excel request file (columns: `Raw_data_source`,
   optional `Program_code`, optional `Skip_aliquot_validation`).
 - **Log cleanup** (`mc_copy_number_log_cleanup.py`, `utils/log_cleanup.py`) — housekeeping, not part
-  of the pipeline: deletes log files under `Location/logs` older than `LogCleanup/retention_days`.
-  No status email; see [Scheduled maintenance entry point](#scheduled-maintenance-entry-point) above.
-- **Status emails** — every pipeline/requests run ends with a Jinja2-rendered HTML email
-  (`templates/`) sent via SMTP (`utils/send_email.py`), gated by `Email/send_emails`. The subject
-  is optionally tagged with `[Location/environment_name]` (e.g. `[production]`) when that key is
-  set, and `MC_EMAIL_ADDITIONAL_TO` recipients are only included when `Email/include_additional_emails`
-  is on *and* the run actually attempted at least one file/entry — a run that found nothing to
-  process at all goes to `MC_EMAIL_TO` only.
+  of the pipeline: deletes log files under `Location/logs` older than `LogCleanup/retention_days`
+  and emails a status report listing every file it deleted (and any it couldn't); see
+  [Scheduled maintenance entry point](#scheduled-maintenance-entry-point) above. Its status email
+  never goes to `MC_EMAIL_ADDITIONAL_TO`, regardless of `Email/include_additional_emails` — see below.
+- **Status emails** — every run ends with a Jinja2-rendered HTML email (`templates/`) sent via SMTP
+  (`utils/send_email.py`), gated by `Email/send_emails`. The subject is optionally tagged with
+  `[Location/environment_name]` (e.g. `[production]`) when that key is set, and
+  `MC_EMAIL_ADDITIONAL_TO` recipients are only included when `Email/include_additional_emails` is on
+  *and* the run actually had something to report (at least one file/entry attempted) — a run that
+  found nothing to do at all goes to `MC_EMAIL_TO` only. The log cleanup status email is an
+  exception: it never includes `MC_EMAIL_ADDITIONAL_TO`, regardless of that setting.
 
 See `CLAUDE.md` for the full architecture writeup (file-by-file responsibilities, config layering,
 and conventions).
@@ -223,7 +227,7 @@ Checked into git — no secrets or machine-specific paths belong here.
 
 | Key | Meaning | Default if absent |
 |---|---|---|
-| `retention_days` | Log files directly under `Location/logs` last modified more than this many days ago are deleted. | `21` (the checked-in `main_config.yaml` currently sets this explicitly to `60`) |
+| `retention_days` | Log files directly under `Location/logs` last modified more than this many days ago are deleted. | `60` — but this key is expected to be tuned per-site over time; the code fallback isn't required to track whatever value is currently checked into `main_config.yaml`. |
 
 **`Database`** — used only when `Alignment/validate_aliquots_against_db` is `True`. `connection/mdb_conn_str`
 is an ODBC connection-string template; the `db_plh_*` keys are the placeholder tokens inside it, and each
@@ -237,7 +241,7 @@ changes.
 |---|---|
 | `send_emails` | Master on/off switch for sending the status email at all. |
 | `email_subject_prefix` | Text prepended to every status email subject line (after the optional `[Location/environment_name]` tag — see below). |
-| `include_additional_emails` | When `True`, status emails also go to `MC_EMAIL_ADDITIONAL_TO` (`.env`) in addition to `MC_EMAIL_TO` — but only for a run that actually attempted at least one file/entry (attempted-but-failed still counts; an empty `ready/` folder does not). Defaults to `False` when unset. |
+| `include_additional_emails` | When `True`, pipeline/requests status emails also go to `MC_EMAIL_ADDITIONAL_TO` (`.env`) in addition to `MC_EMAIL_TO` — but only for a run that actually attempted at least one file/entry (attempted-but-failed still counts; an empty `ready/` folder does not). Defaults to `False` when unset. Does not apply to the log cleanup status email, which never goes to `MC_EMAIL_ADDITIONAL_TO`. |
 
 Sender/recipient addresses themselves live in `.env`, not here, since this file is checked into git.
 
@@ -306,7 +310,7 @@ Not checked into git (secrets and environment-specific addresses) — copy from 
 | `SRD_SMTP_SERVER_PORT` | SMTP server port. Falls back to `25` (plaintext SMTP) if unset or non-numeric. |
 | `MC_EMAIL_FROM` | Sender address for status emails. |
 | `MC_EMAIL_TO` | Comma-separated recipient address(es) for status emails. |
-| `MC_EMAIL_ADDITIONAL_TO` | Comma-separated additional recipient address(es), used only when `Email/include_additional_emails` is `True` in `main_config.yaml`. |
+| `MC_EMAIL_ADDITIONAL_TO` | Comma-separated additional recipient address(es) for pipeline/requests status emails, used only when `Email/include_additional_emails` is `True` in `main_config.yaml`. Never used by the log cleanup status email. |
 | `MC_DB_DRIVER` | ODBC driver name for the metadata DB connection, e.g. `ODBC Driver 18 for SQL Server`. |
 | `MC_DB_SERVER` | Metadata DB server hostname. |
 | `MC_DB_NAME` | Metadata DB database name. |

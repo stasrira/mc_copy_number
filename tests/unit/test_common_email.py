@@ -1,9 +1,11 @@
 import pytest
 
 from utils.common import (
-    _bom_note, _split_emails, build_subject_prefix, send_request_status_email, send_status_email,
+    _bom_note, _split_emails, build_subject_prefix, format_bytes_human, send_log_cleanup_status_email,
+    send_request_status_email, send_status_email,
 )
 from utils.issue_collector import FileRecord, RequestEntryRecord, RequestRecord
+from utils.log_cleanup import LogCleanupResult
 
 EMAIL_CFG = {
     'Email': {
@@ -274,6 +276,101 @@ class TestSendRequestStatusEmail:
         assert 'Entry one error.' not in section_2
 
         assert body.index('one/one.csv') < body.index('two/two.csv')
+
+
+class TestFormatBytesHuman:
+    @pytest.mark.parametrize('num_bytes, expected', [
+        (0, '0 B'),
+        (1, '1 B'),
+        (1023, '1023 B'),
+        (1024, '1 KB'),
+        (1500, '1.5 KB'),
+        (12000, '11.7 KB'),
+        (1024 ** 2, '1 MB'),
+        (1024 ** 3, '1 GB'),
+        (int(1.5 * 1024 ** 3), '1.5 GB'),
+        (1024 ** 4, '1 TB'),
+        (1024 ** 5, '1 PB'),
+    ])
+    def test_formats_expected_unit_and_value(self, num_bytes, expected):
+        assert format_bytes_human(num_bytes) == expected
+
+
+class TestSendLogCleanupStatusEmail:
+    def _result(self, deleted=None, errors=None, scanned=None, bytes_freed=0):
+        result = LogCleanupResult()
+        result.deleted = deleted or []
+        result.errors = errors or []
+        result.bytes_freed = bytes_freed
+        result.scanned = scanned if scanned is not None else len(result.deleted) + len(result.errors)
+        return result
+
+    def test_no_files_deleted_subject(self, make_config, captured_emails, logger):
+        main_cfg = make_config(EMAIL_CFG)
+        send_log_cleanup_status_email(logger, self._result(), '/logs/run.log', main_cfg)
+        assert 'no log files deleted' in captured_emails[0]['subject']
+
+    def test_deleted_files_listed_in_body_and_subject(self, make_config, captured_emails, logger):
+        main_cfg = make_config(EMAIL_CFG)
+        result = self._result(deleted=['/logs/old1.log', '/logs/old2.log'])
+        send_log_cleanup_status_email(logger, result, '/logs/run.log', main_cfg)
+        body = captured_emails[0]['body']
+        assert '/logs/old1.log' in body
+        assert '/logs/old2.log' in body
+        assert '2 log file(s) deleted' in captured_emails[0]['subject']
+
+    def test_errors_present_subject_and_body(self, make_config, captured_emails, logger):
+        main_cfg = make_config(EMAIL_CFG)
+        result = self._result(deleted=['/logs/old.log'], errors=[('/logs/locked.log', 'Permission denied')])
+        send_log_cleanup_status_email(logger, result, '/logs/run.log', main_cfg)
+        assert 'ERRORS PRESENT (1)' in captured_emails[0]['subject']
+        assert '/logs/locked.log' in captured_emails[0]['body']
+
+    def test_send_emails_disabled_does_not_call_send_email(self, make_config, captured_emails, logger):
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'send_emails': False}}
+        main_cfg = make_config(cfg_data)
+        send_log_cleanup_status_email(logger, self._result(deleted=['/logs/old.log']), '/logs/run.log', main_cfg)
+        assert captured_emails == []
+
+    def test_retention_days_and_log_dir_rendered_in_body(self, make_config, captured_emails, logger):
+        main_cfg = make_config(EMAIL_CFG)
+        send_log_cleanup_status_email(
+            logger, self._result(), '/logs/run.log', main_cfg,
+            log_dir='/var/logs/mc', retention_days=60,
+        )
+        body = captured_emails[0]['body']
+        assert '/var/logs/mc' in body
+        assert '60 day(s)' in body
+
+    def test_bytes_freed_rendered_human_readable(self, make_config, captured_emails, logger):
+        main_cfg = make_config(EMAIL_CFG)
+        result = self._result(deleted=['/logs/old.log'], bytes_freed=12 * 1024)
+        send_log_cleanup_status_email(logger, result, '/logs/run.log', main_cfg)
+        body = captured_emails[0]['body']
+        assert '12 KB' in body
+        assert '12288' not in body
+
+    def test_additional_emails_never_included_when_nothing_scanned(
+        self, make_config, captured_emails, logger, monkeypatch,
+    ):
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+        send_log_cleanup_status_email(logger, self._result(scanned=0), '/logs/run.log', main_cfg)
+        assert captured_emails[0]['to'] == ['recipient@example.org']
+
+    def test_additional_emails_never_included_even_when_files_deleted(
+        self, make_config, captured_emails, logger, monkeypatch,
+    ):
+        """Log cleanup emails never go to MC_EMAIL_ADDITIONAL_TO, regardless of
+        Email/include_additional_emails or how many files were deleted — unlike the pipeline and
+        request status emails, this is routine housekeeping, not something extra recipients need
+        to be copied on."""
+        monkeypatch.setenv('MC_EMAIL_ADDITIONAL_TO', 'extra@example.org')
+        cfg_data = {'Email': {**EMAIL_CFG['Email'], 'include_additional_emails': True}}
+        main_cfg = make_config(cfg_data)
+        send_log_cleanup_status_email(logger, self._result(deleted=['/logs/old.log']), '/logs/run.log', main_cfg)
+        assert captured_emails[0]['to'] == ['recipient@example.org']
 
 
 class TestSplitEmails:

@@ -1,0 +1,35 @@
+<b>Mitochondrial Copy Number Processing{% if process.process_label %} - {{process.process_label}}{% endif %} - Status Report</b>
+<br/>
+<br/><b>Run time:</b> {{process.run_time}}
+<br/><b>Log file:</b> {{process.log_file}}
+<br/><b>Log directory scanned:</b> {{process.log_dir}}
+<br/><b>Retention period:</b> {{process.retention_days}} day(s)
+<br/>
+<br/><b>Files scanned:</b> {{process.scanned}}
+<br/><b>Files deleted:</b> {{process.deleted_count}}
+<br/><b>Bytes freed:</b> {{process.bytes_freed}}
+<br/><b>Errors:</b>
+{% if process.error_count > 0 %}
+    <span style="color:red"><b>{{process.error_count}}</b></span>
+{% else %}
+    <span style="color:green">{{process.error_count}}</span>
+{% endif %}
+<br/>
+{% if process.deleted %}
+    <br/><b>Deleted files:</b>
+    <ul>
+    {% for path in process.deleted %}
+        <li>{{path}}</li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <br/><i>No files were deleted.</i>
+{% endif %}
+{% if process.errors %}
+    <br/><b style="color:red">Files that could not be deleted:</b>
+    <ul>
+    {% for path, message in process.errors %}
+        <li><span style="color:red">{{path}}</span> — {{message}}</li>
+    {% endfor %}
+    </ul>
+{% endif %}

@@ -14,7 +14,7 @@ def setup_logger_common(lg_name, lg_level, log_path, filename, mirror_to_stdout=
 
     lev = getattr(logging, lg_level, None)
     if not isinstance(lev, int):
-        print(f'Invalid log level "{lg_level}", falling back to INFO.', file=sys.stderr)
+        mlog.warning(f'Invalid log level "{lg_level}", falling back to INFO.')
         lev = logging.INFO
 
     mlog.setLevel(lev)

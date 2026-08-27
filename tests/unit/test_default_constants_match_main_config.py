@@ -44,7 +44,11 @@ class TestRequestsDefaultsMatchMainConfig:
         assert gc.DEFAULT_REQUESTS_REPROCESS_SUBFOLDER == cfg['reprocess_subfolder']
 
 
-class TestLogCleanupDefaultsMatchMainConfig:
-    def test_matches_yaml(self):
-        cfg = _load_main_config()['LogCleanup']
-        assert gc.DEFAULT_LOG_CLEANUP_RETENTION_DAYS == cfg['retention_days']
+class TestLogCleanupDefaultRetentionDays:
+    """Unlike the DEFAULT_* constants above, this fallback is intentionally allowed to drift from
+    configs/main_config.yaml's LogCleanup/retention_days — that value is expected to be tuned
+    per-site over time. All this checks is that a sane fallback is actually defined."""
+
+    def test_is_a_positive_int(self):
+        assert isinstance(gc.DEFAULT_LOG_CLEANUP_RETENTION_DAYS, int)
+        assert gc.DEFAULT_LOG_CLEANUP_RETENTION_DAYS > 0

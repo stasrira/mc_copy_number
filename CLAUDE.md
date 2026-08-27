@@ -42,7 +42,7 @@ No test talks to a real DB or SMTP server — `pyodbc`/`yagmail` are mocked at t
 
 ## Pipeline architecture
 
-Four independent entry points, each self-contained (loads its own config, sets up its own logger
+Five independent entry points, each self-contained (loads its own config, sets up its own logger
 with an identifiable log filename prefix):
 
 - **`mc_copy_number.py`** — orchestrates Alignment → Counts → status email in one run. Skips Counts
@@ -58,15 +58,17 @@ with an identifiable log filename prefix):
   `raw_data` CSVs via an Excel "request file" (columns: `Raw_data_source`, optional `Program_code`,
   optional `Skip_aliquot_validation`). One status email per request file, one section per entry.
 - **`mc_copy_number_log_cleanup.py`** — housekeeping, not part of the pipeline: deletes log files
-  under `Location/logs` last modified more than `LogCleanup/retention_days` days ago (default 21).
-  Meant to run on its own schedule (e.g. weekly), separate from the entry points above — it doesn't
-  send a status email, just logs what it deleted to its own `log_cleanup_<timestamp>.log`. The
-  actual deletion logic (`utils/log_cleanup.py::cleanup_old_logs`) has no dependency on this
-  project's config/logging conventions (just a directory, a retention count, and a logger), so it's
-  meant to be portable to other projects as-is.
+  under `Location/logs` last modified more than `LogCleanup/retention_days` days ago (default 60).
+  Meant to run on its own schedule (e.g. weekly), separate from the entry points above. Logs what
+  it deleted to its own `log_cleanup_<timestamp>.log` and sends its own status email (via
+  `send_log_cleanup_status_email`) listing every deleted file. The actual deletion logic
+  (`utils/log_cleanup.py::cleanup_old_logs`) has no dependency on this project's config/logging
+  conventions (just a directory, a retention count, and a logger), so it's meant to be portable to
+  other projects as-is.
 
-The first three each send a status email at the end (`mc_copy_number.py`/`mc_copy_number_alignment.py`
-via `send_status_email`, `mc_copy_number_requests.py` via `send_request_status_email`); log cleanup does not.
+All four each send a status email at the end (`mc_copy_number.py`/`mc_copy_number_alignment.py` via
+`send_status_email`, `mc_copy_number_requests.py` via `send_request_status_email`,
+`mc_copy_number_log_cleanup.py` via `send_log_cleanup_status_email`).
 
 ### Step 1: Alignment (`alignment/`, `providers/`)
 
@@ -147,12 +149,20 @@ in the status email rather than a warning per file.
 
 ### Status emails (`utils/common.py`, `templates/`)
 
-Every entry point ends by calling `send_status_email` (or `send_request_status_email`), which
-renders Jinja2 templates (`templates/file_status.html` per file/entry, wrapped in
-`templates/pipeline_status.html` or `templates/request_status.html`) and sends via
-`utils/send_email.py` (yagmail over SMTP) — controlled by `Email/send_emails` in `main_config.yaml`.
-Subject line reflects whether any file had errors/warnings. Email body newlines are stripped
-(`clean_email_body`) to avoid Outlook rendering issues.
+Every entry point ends by calling `send_status_email`, `send_request_status_email`, or (for log
+cleanup) `send_log_cleanup_status_email`, which render Jinja2 templates (`templates/file_status.html`
+per file/entry, wrapped in `templates/pipeline_status.html` or `templates/request_status.html`;
+`templates/log_cleanup_status.html` is self-contained, listing every deleted file directly) and send
+via `utils/send_email.py` (yagmail over SMTP) — controlled by `Email/send_emails` in
+`main_config.yaml`. Subject line reflects whether any file had errors/warnings (or, for log cleanup,
+whether any file failed to delete). Subject is also optionally tagged with `[Location/environment_name]`
+(`build_subject_prefix`) when that key is set. Email body newlines are stripped (`clean_email_body`)
+to avoid Outlook rendering issues. `MC_EMAIL_ADDITIONAL_TO` recipients (`Email/include_additional_emails`)
+are only added when the run actually had something to report (`has_results` — files/entries
+attempted) — a run that found nothing to do goes to `MC_EMAIL_TO` only. Log cleanup emails are an
+exception: they never go to `MC_EMAIL_ADDITIONAL_TO` regardless of config
+(`send_log_cleanup_status_email` passes `allow_additional=False` into `_send_email_if_enabled`) —
+routine housekeeping isn't something the additional recipients need to be copied on.
 
 ## Conventions worth knowing
 

@@ -1,6 +1,13 @@
-import sys
+import logging
 
 import yaml
+
+# Used before an app logger exists (ConfigData is instantiated by initialize_run() ahead of
+# setup_logger_common(), since the log directory itself comes from config) — with no handler
+# configured for this logger name, logging's lastResort handler still prints these to stderr in
+# production, but pytest's logging plugin swallows them during tests (unlike a raw print(), which
+# always writes straight to the real stream).
+_logger = logging.getLogger(__name__)
 
 
 class ConfigData:
@@ -23,7 +30,7 @@ class ConfigData:
             self.cfg = None
 
         if self.error:
-            print(f'WARNING: {self.error}', file=sys.stderr)
+            _logger.warning(self.error)
 
     def get_value(self, yaml_path, delim='/'):
         path_elems = yaml_path.split(delim)
@@ -34,10 +41,9 @@ class ConfigData:
                 try:
                     val = val[el]
                 except Exception as e:
-                    print(
-                        f'WARNING: Failed to resolve config path "{yaml_path}" in '
+                    _logger.warning(
+                        f'Failed to resolve config path "{yaml_path}" in '
                         f'"{self.cfg_path}" at element "{el}": {e}',
-                        file=sys.stderr,
                     )
                     val = None
                     break

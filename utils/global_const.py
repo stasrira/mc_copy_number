@@ -29,4 +29,8 @@ DEFAULT_REQUESTS_PROCESSING_TEMP_SUBFOLDER = 'processing_temp'
 DEFAULT_REQUESTS_PROCESSED_SUBFOLDER = 'processed'
 DEFAULT_REQUESTS_REPROCESS_SUBFOLDER = 'work'
 
-DEFAULT_LOG_CLEANUP_RETENTION_DAYS = 21
+# Fallback used when LogCleanup/retention_days is absent from main_config.yaml. Unlike the
+# defaults above, this one is intentionally *not* required to match the checked-in
+# main_config.yaml — that value is expected to be tuned per-site over time, independently of
+# this fallback.
+DEFAULT_LOG_CLEANUP_RETENTION_DAYS = 60

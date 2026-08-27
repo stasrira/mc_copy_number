@@ -53,7 +53,7 @@ def resolve_csv_write_encoding(df: pd.DataFrame, enable_utf8_bom: bool = True) -
         hit = _non_ascii(v)
         if hit is not None:
             return 'utf-8-sig', hit
-    for col in df.select_dtypes(include='object').columns:
+    for col in df.select_dtypes(include=['object', 'str']).columns:
         for v in df[col]:
             hit = _non_ascii(v)
             if hit is not None:
@@ -310,11 +310,13 @@ def _split_emails(value: str | None) -> list[str]:
     return [addr.strip() for addr in value.split(',') if addr.strip()]
 
 
-def _resolve_email_recipients(main_cfg: ConfigData, has_results: bool) -> list[str]:
+def _resolve_email_recipients(main_cfg: ConfigData, has_results: bool, allow_additional: bool = True) -> list[str]:
     """Build the status-email recipient list from ``MC_EMAIL_TO``, optionally extended with
     ``MC_EMAIL_ADDITIONAL_TO`` when ``Email/include_additional_emails`` is on.
 
-    The additional recipients are only added when there was actually something to process
+    The additional recipients are only added when *allow_additional* is true (see
+    ``send_log_cleanup_status_email``, which always passes ``False`` — log cleanup emails never go
+    to the additional recipients, regardless of config) and there was actually something to process
     (*has_results* — i.e. at least one file/entry was attempted, regardless of whether it
     succeeded or errored). A run that found nothing to process at all (e.g. an empty ``ready/``
     folder) goes to the main recipients only, even with ``Email/include_additional_emails`` on —
@@ -325,23 +327,25 @@ def _resolve_email_recipients(main_cfg: ConfigData, has_results: bool) -> list[s
     into git and email addresses are environment-specific/personal data.
     """
     recipients = _split_emails(get_environment_variable('MC_EMAIL_TO'))
-    if has_results and main_cfg.get_value('Email/include_additional_emails'):
+    if allow_additional and has_results and main_cfg.get_value('Email/include_additional_emails'):
         recipients += _split_emails(get_environment_variable('MC_EMAIL_ADDITIONAL_TO'))
     return recipients
 
 
 def _send_email_if_enabled(logger, main_cfg, subject: str, email_body: str, kind_label: str,
-                            has_results: bool) -> None:
+                            has_results: bool, allow_additional: bool = True) -> None:
     """Send *email_body* via SMTP if ``Email/send_emails`` is on; otherwise just log that it's off.
 
     :param kind_label: prefix for the log line (e.g. "Status" / "Request status").
     :param has_results: whether the run produced any results, per ``_resolve_email_recipients``.
+    :param allow_additional: whether ``MC_EMAIL_ADDITIONAL_TO`` may be added at all, per
+                             ``_resolve_email_recipients``.
     """
     if main_cfg.get_value('Email/send_emails'):
         from utils.send_email import send_email
 
         email_from = get_environment_variable('MC_EMAIL_FROM')
-        emails_to = _resolve_email_recipients(main_cfg, has_results)
+        emails_to = _resolve_email_recipients(main_cfg, has_results, allow_additional=allow_additional)
         send_email(emails_to, subject, email_body, email_from=email_from)
         logger.info(f'{kind_label} email sent to: {emails_to}')
     else:
@@ -464,3 +468,73 @@ def send_request_status_email(logger, request_record, log_filename, main_cfg, su
 
     except Exception:
         logger.error('Failed to send request status email:\n' + traceback.format_exc())
+
+
+def format_bytes_human(num_bytes: int) -> str:
+    """Format a byte count as a human-readable string, e.g. ``0 B``, ``11.7 KB``, ``1 MB``.
+
+    Uses 1024-based units (KB = 1024 B, etc., matching what tools like ``du`` and ``ls -lh``
+    typically show), with one decimal place, trimmed when it's not significant (``1.0 MB`` -> ``1 MB``).
+    """
+    size = float(num_bytes)
+    for unit in ('B', 'KB', 'MB', 'GB', 'TB', 'PB'):
+        if size < 1024 or unit == 'PB':
+            break
+        size /= 1024
+    if unit == 'B':
+        return f'{int(size)} {unit}'
+    text = f'{size:.1f}'.rstrip('0').rstrip('.')
+    return f'{text} {unit}'
+
+
+def send_log_cleanup_status_email(logger, result, log_filename, main_cfg, subject_prefix: str = None,
+                                   process_label: str = None, log_dir=None, retention_days=None):
+    """Build and send a status email summarizing a log-cleanup run, listing every deleted file.
+
+    Never sent to ``MC_EMAIL_ADDITIONAL_TO``, regardless of ``Email/include_additional_emails`` —
+    log cleanup is routine housekeeping, not the kind of thing the additional recipients need to
+    be copied on.
+
+    :param logger: application logger
+    :param result: LogCleanupResult (utils/log_cleanup.py) returned by cleanup_old_logs
+    :param log_filename: log filename to include in the email body
+    :param main_cfg: ConfigData instance for the main config
+    :param subject_prefix: overrides Email/email_subject_prefix when provided
+    :param process_label: entry-point process identification (e.g. "Log Cleanup"), shown in the
+                          email header
+    :param log_dir: the log directory that was scanned, shown in the email body
+    :param retention_days: the retention period (days) that was applied, shown in the email body
+    """
+    try:
+        project_root = get_project_root()
+        templates_dir = project_root / 'templates'
+
+        final_feeder = {
+            'run_time':          time.strftime('%Y-%m-%d %H:%M:%S'),
+            'log_file':          log_filename,
+            'log_dir':           str(log_dir) if log_dir else '',
+            'retention_days':    retention_days,
+            'scanned':           result.scanned,
+            'deleted_count':     result.deleted_count,
+            'deleted':           result.deleted,
+            'error_count':       result.error_count,
+            'errors':            result.errors,
+            'bytes_freed':       format_bytes_human(result.bytes_freed),
+            'process_label':     process_label,
+        }
+        email_body = populate_email_template('log_cleanup_status.html', final_feeder, templates_dir)
+        email_body = clean_email_body(email_body)
+
+        prefix = subject_prefix or main_cfg.get_value('Email/email_subject_prefix') or 'MC Copy Number Processing'
+        if result.error_count > 0:
+            subject = f'{prefix} - ERRORS PRESENT ({result.error_count}) - {result.deleted_count} log file(s) deleted'
+        elif result.deleted_count == 0:
+            subject = f'{prefix} - no log files deleted'
+        else:
+            subject = f'{prefix} - {result.deleted_count} log file(s) deleted'
+
+        _send_email_if_enabled(logger, main_cfg, subject, email_body, 'Log cleanup status',
+                                has_results=result.scanned > 0, allow_additional=False)
+
+    except Exception:
+        logger.error('Failed to send log cleanup status email:\n' + traceback.format_exc())

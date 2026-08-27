@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 import time
 import traceback
 import pandas as pd
@@ -192,6 +193,18 @@ def claim_file(file_path: Path, temp_dir: Path, logger, log_label: str = '') -> 
     except Exception:
         logger.error(f'{log_label}Failed to claim "{file_path.name}":\n' + traceback.format_exc())
         return None
+
+
+def sanitize_output_name(name: str) -> str:
+    """Collapse whitespace in *name* to single underscores, for building pipeline-generated
+    output file/folder names (e.g. the raw_data CSV stem derived from a provider's source file
+    name).
+
+    Only ever applied to names used for output the pipeline itself creates — never to the
+    original source file name, which keeps its own name unchanged when moved to processed/ or
+    reprocess/ (see unique_dest_path, used for that instead).
+    """
+    return re.sub(r'\s+', '_', name.strip())
 
 
 def unique_dest_path(dest_dir: Path, file_name: str) -> Path:

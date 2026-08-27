@@ -87,10 +87,15 @@ under `runFolders/<provider>/` for files matching `provider/file_pattern`. Each 
    `Alligned_file_schema/fields` in `main_config.yaml` — this is the layer of indirection that lets
    every provider config reference a stable `schema_key` (e.g. `aliquot_id`, `mtdna_mean`) while the
    actual output column name is controlled in one place.
-4. Write the standardized CSV to a fresh timestamped sub-folder under `raw_data/`.
+4. Write the standardized CSV to a fresh timestamped sub-folder under `raw_data/`. The sub-folder
+   and CSV file name are derived from the source file's stem with whitespace collapsed to
+   underscores (`utils.common.sanitize_output_name`) — e.g. a provider file named
+   `... mitochondrial copy number assay results_rev.xlsx` produces
+   `..._mitochondrial_copy_number_assay_results_rev.csv`. This only affects pipeline-generated
+   output names; the source file itself keeps its original name (spaces included) in step 5 below.
 5. Move the source file to `processed/` (success) or `reprocess/` a.k.a. `work` (any failure after
-   step 1) for manual intervention. Destination name collisions get a `(1)`, `(2)`, ... suffix
-   (`AlignmentFileProcessor._unique_dest_path`).
+   step 1) for manual intervention, under its original, unmodified name. Destination name
+   collisions get a `(1)`, `(2)`, ... suffix (`AlignmentFileProcessor._unique_dest_path`).
 
 Each source file is tracked by a `FileRecord` (`utils/issue_collector.py`); a `CapturingLogHandler`
 is attached to the logger for the duration of processing that file so all WARNING/ERROR log lines

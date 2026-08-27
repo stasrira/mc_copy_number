@@ -51,11 +51,13 @@ No test talks to a real DB or SMTP server — `pyodbc`/`yagmail` are mocked at t
 
 ## Running
 
-There are four entry points, each a self-contained script that loads its own config, sets up its
-own logger, and always sends its own status email at the end (even on failure). Each has a
-`run_*.sh` wrapper that validates the `python3.12.10_odbc` conda environment exists, activates it
-and `.venv`, runs the corresponding Python script, and cleans up afterwards — this is the wrapper
-pattern used in production.
+There are five entry points, each a self-contained script that loads its own config and sets up
+its own logger. The first four always send their own status email at the end (even on failure);
+the fifth (log cleanup) is housekeeping and only writes to its own log file. Each has a `run_*.sh`
+wrapper that activates the `python3.12.10_odbc` conda environment (failing with a clear error if
+`conda activate` itself fails, e.g. because the environment doesn't exist) and `.venv`, runs the
+corresponding Python script, and cleans up afterwards — this is the wrapper pattern used in
+production.
 
 ### Automated entry points (crontab)
 
@@ -80,21 +82,59 @@ Example crontab entries (adjust paths and schedule as needed):
 
 ```cron
 # Run the main alignment+counts pipeline every 15 minutes
-*/15 * * * * /path/to/mc_copy_number_processing/run_mc_copy_number.sh >> /path/to/mc_copy_number_processing/logs/cron_pipeline.log 2>&1
+*/15 * * * * bash -c '/path/to/mc_copy_number_processing/run_mc_copy_number.sh' 2>&1 | logger -t mc_copy_number_pipeline
 
 # Process any queued request files every 15 minutes
-*/15 * * * * /path/to/mc_copy_number_processing/run_mc_copy_number_requests.sh >> /path/to/mc_copy_number_processing/logs/cron_requests.log 2>&1
+*/15 * * * * bash -c '/path/to/mc_copy_number_processing/run_mc_copy_number_requests.sh' 2>&1 | logger -t mc_copy_number_requests
 ```
 
-(The pipeline's own file-based logging is already configured via `Location/logs`; redirecting
-stdout/stderr in the crontab entry is just a backstop for anything written before the logger is
-set up, e.g. the wrapper script's own conda/venv errors.)
+If your site needs environment setup before the wrapper script itself (e.g. loading modules via
+Lmod), fold it into the same `bash -c '...'` chain rather than tacking it on before the crontab
+line — a trailing pipe/redirect after a `;`-separated command list only binds to the *last*
+command, not the whole chain, so anything the setup commands print would otherwise bypass it:
+
+```cron
+*/15 * * * * bash -c 'source /etc/profile.d/z00_lmod.sh; ml purge; ml anaconda3; /path/to/mc_copy_number_processing/run_mc_copy_number.sh' 2>&1 | logger -t mc_copy_number_pipeline
+```
+
+Why redirect at all: cron mails you the combined stdout/stderr of *every* run that produces any
+output, regardless of exit code. `Logging/mirror_to_stdout` (`configs/main_config.yaml`) mirrors
+every log line to stdout by default, so a routine, fully successful run still produces output and
+still gets mailed — that's unrelated to whether anything actually went wrong. Piping into `logger`
+moves that output into syslog instead (tagged for later retrieval), so cron sees no output and
+stays silent on success; it also captures anything printed by the wrapper script itself before the
+Python logger exists yet (e.g. a missing conda environment). Real status reporting still happens
+through the app's own status email — this is only about suppressing cron's separate,
+output-triggered mail.
+
+To review what a job printed afterward: `journalctl -t mc_copy_number_pipeline` (swap in whatever
+tag you used). `>> /path/to/a/file.log 2>&1` instead of `| logger -t ...` works the same way if you
+prefer a plain file over syslog — just be aware `>>` (append) grows that file forever, since it's
+separate from the pipeline's own per-run, `run_mc_copy_number_log_cleanup.sh`-managed logs under
+`Location/logs`. Either way, confirm your host actually captures it before relying on it: `echo hi
+| logger -t <tag>` then `journalctl -t <tag>`.
+
+### Scheduled maintenance entry point
+
+- **`run_mc_copy_number_log_cleanup.sh`** → `mc_copy_number_log_cleanup.py` — deletes log files
+  under `Location/logs` last modified more than `LogCleanup/retention_days` days ago (see
+  Configuration reference below). Housekeeping only: it isn't part of the pipeline, doesn't send a
+  status email, and just logs what it deleted to its own `log_cleanup_<timestamp>.log`. Meant to
+  run on its own, much less frequent schedule — separate from the two automated entries above:
+
+  ```cron
+  # Clean up old log files once a week
+  0 3 * * 0 bash -c '/path/to/mc_copy_number_processing/run_mc_copy_number_log_cleanup.sh' 2>&1 | logger -t mc_copy_number_log_cleanup
+  ```
+
+  (Same redirect pattern and rationale as the automated entries above — fold any needed
+  environment-setup commands into the same `bash -c '...'` chain.)
 
 ### Manual / ad-hoc entry points
 
 These two are normally run by hand for troubleshooting or backfills, but nothing about them
 prevents scheduling them too (e.g. a dedicated cron job that reprocesses a specific known path) —
-they're just not part of the two automated entries above.
+they're just not part of the scheduled entries above.
 
 - **`run_mc_copy_number_alignment.sh`** → `mc_copy_number_alignment.py` — Alignment (Step 1) only.
   When run standalone like this, the Counts step never runs afterwards regardless of config. Useful
@@ -123,6 +163,7 @@ python mc_copy_number_alignment.py
 python mc_copy_number_counts.py --input_file path/to/aligned.csv
 python mc_copy_number_counts.py --input_dir path/to/dir
 python mc_copy_number_requests.py
+python mc_copy_number_log_cleanup.py
 ```
 
 ## Pipeline overview
@@ -130,16 +171,26 @@ python mc_copy_number_requests.py
 - **Alignment** (`alignment/`, `providers/`) — extracts each provider's Excel file (layout driven
   entirely by that provider's `provider_config.yaml`), renames columns to the canonical schema in
   `configs/main_config.yaml`'s `Alligned_file_schema/fields`, and writes a standardized CSV under
-  `raw_data/`. If `Alignment/validate_aliquots_against_db` is on, extracted aliquot IDs are then
-  validated against the metadata DB and grouped by program code.
+  `raw_data/`. The output sub-folder and CSV file name are derived from the source file's stem with
+  whitespace collapsed to underscores (`utils.common.sanitize_output_name`) — the source file
+  itself keeps its original name (spaces included) when moved to `processed/`/`reprocess/`. If
+  `Alignment/validate_aliquots_against_db` is on, extracted aliquot IDs are then validated against
+  the metadata DB and grouped by program code.
 - **Counts** (`mc_copy_number_counts.py`) — transposes an aligned CSV (aliquot IDs become columns)
   and writes the result under `processed_data/<program_code>/...`, one output file per program when
   a file spans multiple programs.
 - **Requests** (`mc_copy_number_requests.py`, `requests/`) — a separate lifecycle for re-running
   Counts against existing `raw_data` CSVs via an Excel request file (columns: `Raw_data_source`,
   optional `Program_code`, optional `Skip_aliquot_validation`).
-- **Status emails** — every run ends with a Jinja2-rendered HTML email (`templates/`) sent via SMTP
-  (`utils/send_email.py`), gated by `Email/send_emails` in `configs/main_config.yaml`.
+- **Log cleanup** (`mc_copy_number_log_cleanup.py`, `utils/log_cleanup.py`) — housekeeping, not part
+  of the pipeline: deletes log files under `Location/logs` older than `LogCleanup/retention_days`.
+  No status email; see [Scheduled maintenance entry point](#scheduled-maintenance-entry-point) above.
+- **Status emails** — every pipeline/requests run ends with a Jinja2-rendered HTML email
+  (`templates/`) sent via SMTP (`utils/send_email.py`), gated by `Email/send_emails`. The subject
+  is optionally tagged with `[Location/environment_name]` (e.g. `[production]`) when that key is
+  set, and `MC_EMAIL_ADDITIONAL_TO` recipients are only included when `Email/include_additional_emails`
+  is on *and* the run actually attempted at least one file/entry — a run that found nothing to
+  process at all goes to `MC_EMAIL_TO` only.
 
 See `CLAUDE.md` for the full architecture writeup (file-by-file responsibilities, config layering,
 and conventions).
@@ -168,6 +219,12 @@ Checked into git — no secrets or machine-specific paths belong here.
 | `log_level` | Python logging level for the log file, e.g. `INFO` or `DEBUG`. |
 | `mirror_to_stdout` | When `True`, every log line written to the log file is also printed to stdout. |
 
+**`LogCleanup`** — used by `mc_copy_number_log_cleanup.py` only.
+
+| Key | Meaning | Default if absent |
+|---|---|---|
+| `retention_days` | Log files directly under `Location/logs` last modified more than this many days ago are deleted. | `21` (the checked-in `main_config.yaml` currently sets this explicitly to `60`) |
+
 **`Database`** — used only when `Alignment/validate_aliquots_against_db` is `True`. `connection/mdb_conn_str`
 is an ODBC connection-string template; the `db_plh_*` keys are the placeholder tokens inside it, and each
 `env_db_*` key names the environment variable (from `.env`) substituted for the matching placeholder. You
@@ -179,8 +236,8 @@ changes.
 | Key | Meaning |
 |---|---|
 | `send_emails` | Master on/off switch for sending the status email at all. |
-| `email_subject_prefix` | Text prepended to every status email subject line. |
-| `include_additional_emails` | When `True`, status emails also go to `MC_EMAIL_ADDITIONAL_TO` (`.env`) in addition to `MC_EMAIL_TO`. Defaults to `False` when unset. |
+| `email_subject_prefix` | Text prepended to every status email subject line (after the optional `[Location/environment_name]` tag — see below). |
+| `include_additional_emails` | When `True`, status emails also go to `MC_EMAIL_ADDITIONAL_TO` (`.env`) in addition to `MC_EMAIL_TO` — but only for a run that actually attempted at least one file/entry (attempted-but-failed still counts; an empty `ready/` folder does not). Defaults to `False` when unset. |
 
 Sender/recipient addresses themselves live in `.env`, not here, since this file is checked into git.
 
@@ -235,7 +292,8 @@ Not checked into git (machine-specific absolute paths) — copy from `configs/lo
 |---|---|
 | `Location/mitCopyN_studies_dir` | Absolute path to the root directory holding `runFolders/`, `raw_data/`, and `processed_data/` for this environment. |
 | `Location/requests_dir` | Absolute path to the root directory holding the request-file lifecycle folders (`ready/`, `processing_temp/`, `processed/`, `work/`). |
-| `Location/logs` | Path to the folder where log files are written; relative to the project root if not absolute. |
+| `Location/logs` | Path to the folder where log files are written; relative to the project root if not absolute. Also the directory `mc_copy_number_log_cleanup.py` cleans up. |
+| `Location/environment_name` | Optional environment identifier (e.g. `production`, `staging`). When set, shown as a `[name]` prefix on every status email subject. Leave unset/blank to omit it entirely. |
 
 ### `.env`
 

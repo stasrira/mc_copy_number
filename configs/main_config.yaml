@@ -8,7 +8,7 @@ Logging:
 # periodically scheduled job (e.g. weekly), separate from the pipeline entry points.
 LogCleanup:
     # Log files in Location/logs last modified more than this many days ago are deleted.
-    retention_days: 21
+    retention_days: 60
 
 # Database connection for aliquot validation
 Database:

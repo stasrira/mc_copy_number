@@ -24,6 +24,7 @@ SCRIPTS = {
     'run_mc_copy_number_alignment.sh': 'mc_copy_number_alignment.py',
     'run_mc_copy_number_counts.sh': 'mc_copy_number_counts.py',
     'run_mc_copy_number_requests.sh': 'mc_copy_number_requests.py',
+    'run_mc_copy_number_log_cleanup.sh': 'mc_copy_number_log_cleanup.py',
 }
 
 # Mimics `eval "$(conda shell.bash hook)"`: called once as a real executable to print a

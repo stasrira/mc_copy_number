@@ -9,6 +9,7 @@ MAIN_LOG_NAME = 'main_log'
 ALIGNMENT_LOG_NAME = 'alignment_log'
 COUNTS_LOG_NAME = 'counts_log'
 REQUEST_LOG_NAME = 'request_log'
+LOG_CLEANUP_LOG_NAME = 'log_cleanup_log'
 
 # ========== Default sub-folder / directory names
 # Fallbacks used when the corresponding main_config.yaml key is absent. Keep these in sync with
@@ -27,3 +28,5 @@ DEFAULT_REQUESTS_READY_SUBFOLDER = 'ready'
 DEFAULT_REQUESTS_PROCESSING_TEMP_SUBFOLDER = 'processing_temp'
 DEFAULT_REQUESTS_PROCESSED_SUBFOLDER = 'processed'
 DEFAULT_REQUESTS_REPROCESS_SUBFOLDER = 'work'
+
+DEFAULT_LOG_CLEANUP_RETENTION_DAYS = 21

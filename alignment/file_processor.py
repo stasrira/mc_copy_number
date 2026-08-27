@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from providers.base_provider import BaseProvider
-from utils.common import claim_file, resolve_csv_write_encoding, unique_dest_path
+from utils.common import claim_file, resolve_csv_write_encoding, sanitize_output_name, unique_dest_path
 
 
 class AlignmentFileProcessor:
@@ -77,7 +77,9 @@ class AlignmentFileProcessor:
 
             # --- Step 3: create output sub-folder ---
             timestamp = time.strftime('%Y%m%d_%H%M%S')
-            stem = Path(file_name).stem
+            # Sanitized for the output folder/file name only — the source file itself keeps its
+            # original name (with spaces, if any) when moved to processed/ below.
+            stem = sanitize_output_name(Path(file_name).stem)
             out_subfolder = self.raw_data_dir / f'{timestamp}_{stem}'
             os.makedirs(out_subfolder, exist_ok=True)
 

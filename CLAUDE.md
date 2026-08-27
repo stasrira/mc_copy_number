@@ -18,12 +18,14 @@ be invoked (e.g. by a scheduled task) and then exit.
 ./run_mc_copy_number_counts.sh --input_file path/to/aligned.csv   # same wrapper, counts step only; forwards args
 ./run_mc_copy_number_counts.sh --input_dir path/to/dir            # same, dir must contain exactly one CSV
 ./run_mc_copy_number_requests.sh      # same wrapper, process ad-hoc request files (re-run counts for existing raw_data CSVs)
+./run_mc_copy_number_log_cleanup.sh   # same wrapper, deletes log files older than LogCleanup/retention_days
 
 python mc_copy_number.py              # same entry points, without the conda/venv wrapper
 python mc_copy_number_alignment.py
 python mc_copy_number_counts.py --input_file path/to/aligned.csv
 python mc_copy_number_counts.py --input_dir path/to/dir
 python mc_copy_number_requests.py
+python mc_copy_number_log_cleanup.py
 ```
 
 Each `run_*.sh` wrapper validates that the `python3.12.10_odbc` conda environment (the
@@ -40,8 +42,8 @@ No test talks to a real DB or SMTP server — `pyodbc`/`yagmail` are mocked at t
 
 ## Pipeline architecture
 
-Three independent entry points, each self-contained (loads its own config, sets up its own logger,
-sends its own status email at the end):
+Four independent entry points, each self-contained (loads its own config, sets up its own logger
+with an identifiable log filename prefix):
 
 - **`mc_copy_number.py`** — orchestrates Alignment → Counts → status email in one run. Skips Counts
   when nothing aligned, when `Alignment/allow_automated_counts_processing` is off, or (per-file) when
@@ -55,6 +57,16 @@ sends its own status email at the end):
 - **`mc_copy_number_requests.py`** — a separate lifecycle for re-running Counts against existing
   `raw_data` CSVs via an Excel "request file" (columns: `Raw_data_source`, optional `Program_code`,
   optional `Skip_aliquot_validation`). One status email per request file, one section per entry.
+- **`mc_copy_number_log_cleanup.py`** — housekeeping, not part of the pipeline: deletes log files
+  under `Location/logs` last modified more than `LogCleanup/retention_days` days ago (default 21).
+  Meant to run on its own schedule (e.g. weekly), separate from the entry points above — it doesn't
+  send a status email, just logs what it deleted to its own `log_cleanup_<timestamp>.log`. The
+  actual deletion logic (`utils/log_cleanup.py::cleanup_old_logs`) has no dependency on this
+  project's config/logging conventions (just a directory, a retention count, and a logger), so it's
+  meant to be portable to other projects as-is.
+
+The first three each send a status email at the end (`mc_copy_number.py`/`mc_copy_number_alignment.py`
+via `send_status_email`, `mc_copy_number_requests.py` via `send_request_status_email`); log cleanup does not.
 
 ### Step 1: Alignment (`alignment/`, `providers/`)
 
@@ -75,10 +87,15 @@ under `runFolders/<provider>/` for files matching `provider/file_pattern`. Each 
    `Alligned_file_schema/fields` in `main_config.yaml` — this is the layer of indirection that lets
    every provider config reference a stable `schema_key` (e.g. `aliquot_id`, `mtdna_mean`) while the
    actual output column name is controlled in one place.
-4. Write the standardized CSV to a fresh timestamped sub-folder under `raw_data/`.
+4. Write the standardized CSV to a fresh timestamped sub-folder under `raw_data/`. The sub-folder
+   and CSV file name are derived from the source file's stem with whitespace collapsed to
+   underscores (`utils.common.sanitize_output_name`) — e.g. a provider file named
+   `... mitochondrial copy number assay results_rev.xlsx` produces
+   `..._mitochondrial_copy_number_assay_results_rev.csv`. This only affects pipeline-generated
+   output names; the source file itself keeps its original name (spaces included) in step 5 below.
 5. Move the source file to `processed/` (success) or `reprocess/` a.k.a. `work` (any failure after
-   step 1) for manual intervention. Destination name collisions get a `(1)`, `(2)`, ... suffix
-   (`AlignmentFileProcessor._unique_dest_path`).
+   step 1) for manual intervention, under its original, unmodified name. Destination name
+   collisions get a `(1)`, `(2)`, ... suffix (`AlignmentFileProcessor._unique_dest_path`).
 
 Each source file is tracked by a `FileRecord` (`utils/issue_collector.py`); a `CapturingLogHandler`
 is attached to the logger for the duration of processing that file so all WARNING/ERROR log lines

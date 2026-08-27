@@ -24,6 +24,7 @@ SCRIPTS = {
     'run_mc_copy_number_alignment.sh': 'mc_copy_number_alignment.py',
     'run_mc_copy_number_counts.sh': 'mc_copy_number_counts.py',
     'run_mc_copy_number_requests.sh': 'mc_copy_number_requests.py',
+    'run_mc_copy_number_log_cleanup.sh': 'mc_copy_number_log_cleanup.py',
 }
 
 # Mimics `eval "$(conda shell.bash hook)"`: called once as a real executable to print a
@@ -39,7 +40,12 @@ conda() {
             fi
             ;;
         activate)
-            echo "activate:$2" >> "$FAKE_CONDA_LOG"
+            if [ -n "${FAKE_CONDA_ENVS:-}" ] && echo "${FAKE_CONDA_ENVS%% *}" | grep -Fxq "$2"; then
+                echo "activate:$2" >> "$FAKE_CONDA_LOG"
+            else
+                echo "EnvironmentNameNotFound: could not find conda environment: $2 (environment does not exist)" >&2
+                return 1
+            fi
             ;;
         deactivate)
             echo "deactivate" >> "$FAKE_CONDA_LOG"

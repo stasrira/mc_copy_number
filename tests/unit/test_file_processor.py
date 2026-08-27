@@ -49,6 +49,27 @@ class TestProcessFileHappyPath:
         assert not (temp_dir / 'foo.xlsx').exists()
         assert (processed_dir / 'foo.xlsx').exists()
 
+    def test_output_name_spaces_replaced_but_source_name_unchanged(self, tmp_path, logger):
+        """Real-world example: SNE_batch1_PAXgeneDNA_mitochondrial copy number assay results_rev.xlsx
+        from NairLab. The raw_data output folder/file name must have spaces collapsed to
+        underscores, but the source file itself must be moved to processed/ under its original,
+        space-containing name."""
+        src_name = 'SNE_batch1_PAXgeneDNA_mitochondrial copy number assay results_rev.xlsx'
+        src = tmp_path / 'ready' / src_name
+        src.parent.mkdir()
+        src.write_text('placeholder')
+        temp_dir, processed_dir, reprocess_dir = _dirs(tmp_path)
+        processor = AlignmentFileProcessor(
+            FakeProvider(), str(tmp_path / 'raw_data'), logger,
+        )
+
+        out_path = processor.process_file(src, temp_dir, processed_dir, reprocess_dir)
+
+        assert out_path is not None
+        assert out_path.name == 'SNE_batch1_PAXgeneDNA_mitochondrial_copy_number_assay_results_rev.csv'
+        assert ' ' not in out_path.parent.name
+        assert (processed_dir / src_name).exists()
+
     def test_unmapped_column_is_kept_as_is_with_warning(self, tmp_path, logger, caplog):
         src = tmp_path / 'ready' / 'foo.xlsx'
         src.parent.mkdir()

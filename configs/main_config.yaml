@@ -4,6 +4,12 @@ Logging:
     # If True (default), every log entry written to a log file is also mirrored to stdout
     mirror_to_stdout: True
 
+# Log file retention, applied by mc_copy_number_log_cleanup.py. Meant to run as its own
+# periodically scheduled job (e.g. weekly), separate from the pipeline entry points.
+LogCleanup:
+    # Log files in Location/logs last modified more than this many days ago are deleted.
+    retention_days: 21
+
 # Database connection for aliquot validation
 Database:
     connection:

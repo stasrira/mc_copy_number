@@ -42,3 +42,9 @@ class TestRequestsDefaultsMatchMainConfig:
         assert gc.DEFAULT_REQUESTS_PROCESSING_TEMP_SUBFOLDER == cfg['processing_temp_subfolder']
         assert gc.DEFAULT_REQUESTS_PROCESSED_SUBFOLDER == cfg['processed_subfolder']
         assert gc.DEFAULT_REQUESTS_REPROCESS_SUBFOLDER == cfg['reprocess_subfolder']
+
+
+class TestLogCleanupDefaultsMatchMainConfig:
+    def test_matches_yaml(self):
+        cfg = _load_main_config()['LogCleanup']
+        assert gc.DEFAULT_LOG_CLEANUP_RETENTION_DAYS == cfg['retention_days']
